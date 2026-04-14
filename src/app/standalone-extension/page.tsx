@@ -29,7 +29,7 @@ function StandaloneExtension() {
         <>
           {appContext && (
             <>
-              <h1>Welcome to {appContext?.name}</h1>
+              <h1>Welcome to quang test {appContext?.name}</h1>
               <p>This is a standalone extension.</p>
               <div className="application-context">
                 <h3>Application Context:</h3>
