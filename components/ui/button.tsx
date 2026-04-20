@@ -1,58 +1,215 @@
-import { Button as ButtonPrimitive } from "@base-ui/react/button"
-import { cva, type VariantProps } from "class-variance-authority"
+import { type VariantProps, cva } from "class-variance-authority";
+import { Slot as SlotPrimitive } from "radix-ui";
+import type * as React from "react";
 
-import { cn } from "@/lib/utils"
+import { cn } from "@/lib/utils";
 
 const buttonVariants = cva(
-  "group/button inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  [
+    // Layout & Sizing
+    "inline-flex items-center justify-center",
+    "gap-2 whitespace-nowrap",
+    "shrink-0",
+
+    // Typography
+    "text-md font-semibold",
+
+    // Icon Styles
+    "[&_svg]:pointer-events-none",
+    "[&_svg]:w-[1.375rem] [&_svg]:h-[1.375rem]",
+    "[&_svg]:shrink-0",
+
+    // Interactive States
+    "transition-all",
+    "cursor-pointer",
+    "disabled:pointer-events-none disabled:opacity-50",
+
+    // Focus & Validation States
+    "outline-none",
+    "focus-visible:border-primary focus-visible:ring-primary/50 focus-visible:ring-[3px]",
+    "aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40",
+    "aria-invalid:border-destructive",
+  ].join(" "),
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground [a]:hover:bg-primary/80",
+        default:
+          "bg-primary text-primary-foreground hover:bg-primary-600 active:bg-primary-700",
         outline:
-          "border-border bg-background hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
-        secondary:
-          "bg-secondary text-secondary-foreground hover:bg-secondary/80 aria-expanded:bg-secondary aria-expanded:text-secondary-foreground",
-        ghost:
-          "hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50",
-        destructive:
-          "bg-destructive/10 text-destructive hover:bg-destructive/20 focus-visible:border-destructive/40 focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:hover:bg-destructive/30 dark:focus-visible:ring-destructive/40",
+          "border bg-backgrounds hover:bg-neutral-bg hover:text-accent-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50",
+        ghost: "bg-transparent hover:bg-neutral-bg active:bg-neutral-bg-active",
         link: "text-primary underline-offset-4 hover:underline",
       },
       size: {
-        default:
-          "h-8 gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
-        xs: "h-6 gap-1 rounded-[min(var(--radius-md),10px)] px-2 text-xs in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
-        sm: "h-7 gap-1 rounded-[min(var(--radius-md),12px)] px-2.5 text-[0.8rem] in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
-        lg: "h-9 gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
-        icon: "size-8",
-        "icon-xs":
-          "size-6 rounded-[min(var(--radius-md),10px)] in-data-[slot=button-group]:rounded-lg [&_svg:not([class*='size-'])]:size-3",
-        "icon-sm":
-          "size-7 rounded-[min(var(--radius-md),12px)] in-data-[slot=button-group]:rounded-lg",
-        "icon-lg": "size-9",
+        default: "h-10 min-w-10 px-4 rounded-4xl",
+        lg: "h-12 min-w-12 px-6 rounded-4xl",
+        sm: "h-8 min-w-8 px-3 rounded-4xl",
+        xs: "h-6 min-w-6 px-2 rounded-4xl text-xs [&>svg]:!w-[18px] [&>svg]:!h-[18px]",
+        icon: "size-10 rounded-full",
+        // New icon-specific sizes
+        "icon-lg": "size-12 rounded-full",
+        "icon-sm": "size-8 rounded-full",
+        "icon-xs": "size-6 rounded-full [&>svg]:!w-[18px] [&>svg]:!h-[18px]",
+      },
+      colorScheme: {
+        primary: "",
+        ai: "bg-[length:250%_100%] !bg-transparent",
+        danger: "",
+        success: "",
+        neutral: "",
       },
     },
+    compoundVariants: [
+      {
+        variant: "default",
+        colorScheme: "primary",
+        class:
+          "bg-primary text-inverse-text hover:bg-primary-hover active:bg-primary-active",
+      },
+      {
+        variant: "default",
+        colorScheme: "success",
+        class:
+          "bg-success text-inverse-text hover:bg-success-hover active:bg-success-active",
+      },
+      {
+        variant: "default",
+        colorScheme: "danger",
+        class:
+          "bg-danger text-inverse-text hover:bg-danger-hover active:bg-danger-active",
+      },
+      {
+        variant: "default",
+        colorScheme: "neutral",
+        class:
+          "bg-neutral text-inverse-text hover:bg-neutral-hover active:bg-neutral-active",
+      },
+      {
+        variant: "default",
+        colorScheme: "ai",
+        class: "ai-500 text-inverse-text hover:ai-600 active:ai-700",
+      },
+      {
+        variant: "outline",
+        colorScheme: "primary",
+        class:
+          "border text-primary-fg hover:bg-primary-bg hover:text-primary-fg active:bg-primary-bg-active",
+      },
+      {
+        variant: "outline",
+        colorScheme: "success",
+        class:
+          "border text-success-fg hover:bg-success-bg hover:text-success-fg active:bg-success-bg-active",
+      },
+      {
+        variant: "outline",
+        colorScheme: "danger",
+        class:
+          "border text-danger-fg hover:bg-danger-bg hover:text-danger-fg active:bg-danger-bg-active",
+      },
+      {
+        variant: "outline",
+        colorScheme: "neutral",
+        class:
+          "border text-neutral-fg hover:bg-neutral-bg hover:text-neutral-fg active:bg-neutral-bg-active",
+      },
+      {
+        variant: "ghost",
+        colorScheme: "primary",
+        class:
+          "text-primary-fg hover:bg-primary-bg hover:text-primary-fg active:bg-primary-bg-active",
+      },
+      {
+        variant: "ghost",
+        colorScheme: "success",
+        class:
+          "text-success-fg hover:bg-success-bg hover:text-success-fg active:bg-success-bg-active",
+      },
+      {
+        variant: "ghost",
+        colorScheme: "danger",
+        class:
+          "text-danger-fg hover:bg-danger-bg hover:text-danger-fg active:bg-danger-bg-active",
+      },
+      {
+        variant: "ghost",
+        colorScheme: "neutral",
+        class:
+          "text-neutral-fg hover:bg-neutral-bg hover:text-neutral-fg active:bg-neutral-bg-active",
+      },
+      {
+        variant: "link",
+        colorScheme: "primary",
+        class: "text-primary active:text-primary-700",
+      },
+      {
+        variant: "link",
+        colorScheme: "success",
+        class: "text-success active:text-success-700",
+      },
+      {
+        variant: "link",
+        colorScheme: "danger",
+        class: "text-danger active:text-danger-700",
+      },
+      {
+        variant: "link",
+        colorScheme: "neutral",
+        class: "text-neutral active:text-neutral-700",
+      },
+    ],
     defaultVariants: {
       variant: "default",
       size: "default",
+      colorScheme: "primary",
     },
-  }
-)
+  },
+);
 
 function Button({
   className,
-  variant = "default",
-  size = "default",
+  variant,
+  size,
+  colorScheme,
+  asChild = false,
   ...props
-}: ButtonPrimitive.Props & VariantProps<typeof buttonVariants>) {
+}: React.ComponentProps<"button"> &
+  VariantProps<typeof buttonVariants> & {
+    asChild?: boolean;
+  }) {
+  const Comp = asChild ? SlotPrimitive.Slot : "button";
+
+  let resolvedColorSchemeFinal = colorScheme;
+
+  if (!colorScheme) {
+    switch (variant) {
+      case "default":
+      case "link":
+        resolvedColorSchemeFinal = "primary";
+        break;
+      case "outline":
+      case "ghost":
+        resolvedColorSchemeFinal = "neutral";
+        break;
+      default:
+        resolvedColorSchemeFinal = "primary";
+    }
+  }
+
   return (
-    <ButtonPrimitive
+    <Comp
       data-slot="button"
-      className={cn(buttonVariants({ variant, size, className }))}
+      className={cn(
+        buttonVariants({
+          variant,
+          size,
+          colorScheme: resolvedColorSchemeFinal,
+          className,
+        }),
+      )}
       {...props}
     />
-  )
+  );
 }
 
-export { Button, buttonVariants }
+export { Button, buttonVariants };

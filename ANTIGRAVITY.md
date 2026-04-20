@@ -1,8 +1,55 @@
 # Project Context
 
 ### Repository Overview
+- create a admin portal for marketplace manage sitecore item
+- using layout blok.sitecore
+- menu left right
+- create product
+- create order
+- create customer
+- fetch data from graphqr sitecore-marketplace-sdk/client
+- post data axios
+
+
+Install the theme and components
+
+npx shadcn@latest add https://blok.sitecore.com/r/theme.json
+npx shadcn@latest add https://blok.sitecore.com/r/button.json
+Import and use components in your code
+
+import { Button } from "@/components/ui/button"
+
+export function MyComponent() {
+  return <Button>Click me</Button>
+}
+Customize the theme by modifying CSS variables in your globals.css
+
+Usage Examples
+import { Button } from "@/components/ui/button"
+
+export function ButtonExamples() {
+  return (
+    <div className="space-x-2">
+      {/* Default button */}
+      <Button>Default</Button>
+      
+      {/* Primary button */}
+      <Button variant="default">Primary</Button>
+      
+      {/* Secondary button */}
+      <Button variant="secondary">Secondary</Button>
+      
+      {/* Destructive button */}
+      <Button variant="destructive">Delete</Button>
+      
+      {/* Outline button */}
+      <Button variant="outline">Outline</Button>
+    </div>
+  )
+}
 
 ### Technology Stack
+
 
 **Core Technologies:**
 - **Next.js 14+** - React framework with App Router and Pages Router support
@@ -83,47 +130,6 @@
 - Implement proper error boundaries
 - Handle destructuring, undefined errors and null values in datasource and field values gracefully
 
-```typescript
-// Good component pattern
-import { Text, Image, useSitecore } from '@sitecore-content-sdk/nextjs';
-
-interface HeroProps {
-  fields: {
-    data?: {
-      datasource?: {
-        title?: { jsonValue?: Field };
-        subtitle?: { jsonValue?: Field };
-        backgroundImage?: { jsonValue?: Field };
-      };
-    };
-  };
-}
-
-export default function Hero({ fields }: HeroProps) {
-  const { page } = useSitecore();
-  const { isEditing } = page.mode;
-
-  if (!fields) {
-    return <div>Hero content not configured</div>;
-  }
-
-  // Handle destructuring errors with safe fallbacks
-  const { data } = fields || {};
-  const { datasource } = data || {};
-  const { title, subtitle, backgroundImage } = datasource || {};
-
-  return (
-    <section className="hero">
-      {/* Show field components in editing mode even if no content */}
-      {(title?.jsonValue?.value || isEditing) && <Text field={title?.jsonValue} tag="h1" />}
-      {(subtitle?.jsonValue?.value || isEditing) && <Text field={subtitle?.jsonValue} tag="p" />}
-      {(backgroundImage?.jsonValue?.value?.src || isEditing) && (
-        <Image field={backgroundImage?.jsonValue} />
-      )}
-    </section>
-  );
-}
-```
 
 ### Safe Destructuring Examples
 
@@ -171,7 +177,7 @@ field={fields.data.datasource.title.jsonValue} // Error if any part is null/unde
 **Styling:**
 - Use Tailwind CSS for consistent styling across starters
 - Follow utility-first CSS principles
-- Use Shadcn/ui components for common UI elements
+- Use Blok components for common UI elements
 - Implement responsive design patterns
 - Maintain consistent design tokens
 
@@ -334,7 +340,7 @@ src/
       Hero.tsx        # Main component file with props and variants
     article-header/   # Component with complex structure
     product-listing/  # Multi-variant component
-    ui/              # Shadcn/ui components
+    ui/              # Blok components
     image/           # Reusable image wrapper
     button-component/ # Button variations
   lib/                # Configuration and utilities
@@ -625,7 +631,7 @@ export const Default: React.FC<ComponentProps> = (props) => {
 
 ### Styling and UI Patterns
 
-**Tailwind and Shadcn/ui:**
+**Tailwind and Blok:**
 - Use Tailwind CSS utility classes throughout
 - Import UI components from `@/components/ui/`
 - Use `cn()` utility for conditional classes
