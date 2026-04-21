@@ -5,7 +5,7 @@ import type { ApplicationContext } from "@sitecore-marketplace-sdk/client";
 import { useMarketplaceClient } from "@/src/utils/hooks/useMarketplaceClient";
 
 function StandaloneExtension() {
-  const { client, error, isInitialized } = useMarketplaceClient();
+  const { client, error, isInitialized, isLoading } = useMarketplaceClient();
   const [appContext, setAppContext] = useState<ApplicationContext>();
 
   useEffect(() => {
@@ -25,6 +25,10 @@ function StandaloneExtension() {
 
   return (
     <>
+      {isLoading && <p>Initializing Marketplace client...</p>}
+      {!isLoading && !error && isInitialized && !appContext && (
+        <p>Connected, but no application context returned.</p>
+      )}
       {isInitialized && (
         <>
           {appContext && (
