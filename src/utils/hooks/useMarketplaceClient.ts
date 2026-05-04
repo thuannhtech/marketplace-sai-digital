@@ -39,14 +39,52 @@ const DEFAULT_OPTIONS: Required<UseMarketplaceClientOptions> = {
 
 let client: ClientSDK | undefined = undefined;
 
+const NON_RETRYABLE_ERROR_PREFIX = "MARKETPLACE_NON_RETRYABLE:";
+
+function isEmbeddedInIframe() {
+  try {
+    return window.self !== window.top;
+  } catch {
+    return true;
+  }
+}
+
+function getMarketplaceTarget() {
+  const targetMode = process.env.NEXT_PUBLIC_MARKETPLACE_TARGET ?? "auto";
+
+  if (targetMode === "self") return window;
+
+  if (targetMode === "parent") {
+    if (!isEmbeddedInIframe()) {
+      throw new Error(
+        `${NON_RETRYABLE_ERROR_PREFIX} NEXT_PUBLIC_MARKETPLACE_TARGET=parent requires iframe host.`,
+      );
+    }
+    return window.parent;
+  }
+
+  if (isEmbeddedInIframe()) return window.parent;
+
+  throw new Error(
+    `${NON_RETRYABLE_ERROR_PREFIX} Marketplace host is unavailable in standalone mode.`,
+  );
+}
+
+function isRetryableInitializationError(error: unknown) {
+  if (!(error instanceof Error)) return true;
+  if (error.message.startsWith(NON_RETRYABLE_ERROR_PREFIX)) return false;
+  if (error.message.includes("Invalid message origin")) return false;
+  return true;
+}
+
 async function getMarketplaceClient() {
   if (client) {
     return client;
   }
 
   const config = {
-    target: window.parent,
-     modules: [XMC],
+    target: getMarketplaceTarget(),
+    modules: [XMC],
   };
 
   client = await ClientSDK.init(config);
@@ -92,14 +130,17 @@ export function useMarketplaceClient(options: UseMarketplaceClientOptions = {}) 
         isInitialized: true,
       });
     } catch (error) {
-      if (attempt < opts.retryAttempts) {
+      if (isRetryableInitializationError(error) && attempt < opts.retryAttempts) {
         await new Promise(resolve => setTimeout(resolve, opts.retryDelay));
         return initializeClient(attempt + 1);
       }
 
       setState({
         client: null,
-        error: error instanceof Error ? error : new Error('Failed to initialize MarketplaceClient'),
+        error:
+          error instanceof Error
+            ? new Error(error.message.replace(NON_RETRYABLE_ERROR_PREFIX, "").trim())
+            : new Error("Failed to initialize MarketplaceClient"),
         isLoading: false,
         isInitialized: false,
       });
@@ -130,3 +171,7 @@ export function useMarketplaceClient(options: UseMarketplaceClientOptions = {}) 
     initialize: initializeClient,
   }), [state, initializeClient]);
 }
+
+
+
+

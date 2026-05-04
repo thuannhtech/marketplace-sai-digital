@@ -12,7 +12,7 @@ export interface SiteNavigationGroup {
   items: SiteNavigationItem[];
 }
 
-export const siteBrandName = "Blok Marketplace";
+export const siteBrandName = "Admin Portal";
 
 export const siteNavigationGroups: SiteNavigationGroup[] = [
   {
@@ -24,19 +24,5 @@ export const siteNavigationGroups: SiteNavigationGroup[] = [
         icon: mdi.mdiPackageVariantClosed,
       },
     ],
-  },
-];
-
-export const siteNavigationFooterItems: SiteNavigationItem[] = [
-  {
-    title: "Settings",
-    url: "/settings",
-    icon: mdi.mdiCogOutline,
-  },
-  {
-    title: "Documentation",
-    url: "https://blok.sitecore.com",
-    icon: mdi.mdiBookOpenVariant,
-    external: true,
   },
 ];

@@ -11,7 +11,7 @@ const routeMap: Record<string, string> = {
 
 export function Header() {
   const pathname = usePathname();
-  const pageName = routeMap[pathname] || "Product Listing";
+  const pageName = routeMap[pathname];
 
   return (
     <header className="flex h-16 shrink-0 items-center gap-2 border-b border-sidebar-border px-4 bg-background/80 backdrop-blur-md sticky top-0 z-10">
@@ -29,9 +29,6 @@ export function Header() {
         </nav>
         <div className="flex items-center gap-4">
           <div className="h-2 w-2 rounded-full bg-success animate-pulse" />
-          <span className="text-2xs font-medium text-subtle-text uppercase tracking-wider">
-            Connected to Sitecore
-          </span>
         </div>
       </div>
     </header>

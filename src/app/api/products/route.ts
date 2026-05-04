@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   createProductWithWorkato,
   CreateProductPayload,
-} from "@/src/lib/api/workato-product-api";
+} from "@/src/lib/integrations/workato/workato-product-api";
 
 export async function POST(request: NextRequest) {
   try {
