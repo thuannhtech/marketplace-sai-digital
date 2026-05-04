@@ -2,6 +2,34 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
     pageExtensions: ['ts', 'tsx', 'js', 'jsx'],
+    images: {
+        remotePatterns: [
+            {
+                protocol: 'https',
+                hostname: '**.sitecorecloud.io',
+            },
+            {
+                protocol: 'https',
+                hostname: 'sitecorecloud.io',
+            },
+            {
+                protocol: 'https',
+                hostname: '**.sitecore.com',
+            },
+            {
+                protocol: 'https',
+                hostname: '**.sitecore.net',
+            },
+            {
+                protocol: 'http',
+                hostname: 'localhost',
+            },
+            {
+                protocol: 'https',
+                hostname: 'localhost',
+            },
+        ],
+    },
     async headers() {
         return [
             {

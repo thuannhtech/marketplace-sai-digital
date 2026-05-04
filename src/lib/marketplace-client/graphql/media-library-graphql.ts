@@ -9,6 +9,7 @@ const requestUploadUrlMutation = `
     }
   }
 `;
+const SITECORE_MEDIA_LIBRARY_PREFIX = "/sitecore/media library/";
 
 const getMediaItemQuery = `
   query GetMediaItem($itemId: String!) {
@@ -97,10 +98,7 @@ export interface MediaItemResult {
 
 function getExperienceEdgeGraphqlConfig(): { endpoint: string; apiKey: string } | null {
   if (typeof process === "undefined") return null;
-  const apiKey =
-    process.env.NEXT_PUBLIC_EXPERIENCE_EDGE_TOKEN?.trim() ||
-    process.env.NEXT_PUBLIC_EXPERIENCE_EDGE?.trim() ||
-    process.env.NEXT_PUBLIC_SITECORE_EDGE_API_KEY?.trim();
+  const apiKey = process.env.NEXT_PUBLIC_EXPERIENCE_EDGE_TOKEN?.trim()
   if (!apiKey) return null;
   const endpoint =
     process.env.NEXT_PUBLIC_SITECORE_EDGE_GRAPHQL_URL?.trim() ||
@@ -304,13 +302,26 @@ function extractPresignedUploadUrl(response: unknown): string | undefined {
   return typeof url === "string" && url.length > 0 ? url : undefined;
 }
 
+function normalizeUploadMediaItemPath(itemPath: string): string {
+  const normalizedPath = itemPath.trim().replace(/\\/g, "/").replace(/^\/+/, "");
+  const lowerPath = normalizedPath.toLowerCase();
+  const mediaLibraryPrefix = SITECORE_MEDIA_LIBRARY_PREFIX.replace(/^\/+/, "");
+
+  if (lowerPath.startsWith(mediaLibraryPrefix)) {
+    return normalizedPath.slice(mediaLibraryPrefix.length);
+  }
+
+  return normalizedPath;
+}
+
 export async function uploadImageToMediaLibrary(
   client: ClientSDK,
   params: { itemPath: string; file: File | Blob; fileName: string },
 ): Promise<UploadedMediaResult> {
+  const itemPath = "Project/sai-sitecore/sai-sitecore/test.jpg";
   const mutationResponse = await executeAuthoringGraphql(client, {
     query: requestUploadUrlMutation,
-    variables: { itemPath: params.itemPath },
+    variables: {itemPath},
   });
   const presignedUploadUrl = extractPresignedUploadUrl(mutationResponse);
 
@@ -319,7 +330,7 @@ export async function uploadImageToMediaLibrary(
   }
 
   const formData = new FormData();
-  formData.append("file", params.file, params.fileName);
+  formData.append("", params.file, params.fileName);
 
   const uploadResponse = await fetch(presignedUploadUrl, {
     method: "POST",

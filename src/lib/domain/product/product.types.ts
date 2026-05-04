@@ -22,5 +22,5 @@ export interface CreateProductBody {
   price: number;
   quantity: number;
   images?: CreateProductImage[];
-  mediaItemIds?: string[];
+  MediaItemIds?: string;
 }

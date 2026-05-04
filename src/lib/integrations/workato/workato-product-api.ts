@@ -7,12 +7,12 @@ export interface CreateProductPayload {
   catalog: string;
   price: number;
   quantity: number;
-  mediaItemIds?: string[];
   images?: {
     fileName: string;
     mimeType: string;
     contentBase64: string;
   }[];
+  MediaItemIds?: string;
 }
 
 export interface WorkatoCreateProductResponse {

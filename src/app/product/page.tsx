@@ -1,11 +1,13 @@
 "use client";
 
 import * as mdi from "@mdi/js";
-import { ChangeEvent, useEffect, useMemo, useState } from "react";
+import Image from "next/image";
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   Sheet,
   SheetContent,
@@ -38,6 +40,7 @@ const MEDIA_LIBRARY_EDGE_FOLDER_PATH =
   "/sitecore/media library/Project/sai-sitecore/sai-sitecore";
 const MEDIA_LIBRARY_UPLOAD_PATH =
   process.env.NEXT_PUBLIC_SITECORE_MEDIA_LIBRARY_UPLOAD_PATH ?? "";
+type AlertVariant = "default" | "destructive";
 
 const DEFAULT_CREATE_FORM: CreateProductBody = {
   model_name: "",
@@ -64,15 +67,71 @@ function normalizeStatus(status: string): string {
   return STATUS_DRAFT;
 }
 
-function getStatusBadgeColor(status: string): "success" | "warning" | "neutral" {
+function getStatusBadgeColor(status: string): "success" | "warning" | "primary" | "neutral" {
   const normalizedStatus = normalizeStatus(status);
   if (normalizedStatus === STATUS_APPROVE) return "success";
   if (normalizedStatus === STATUS_AWAITING_APPROVAL) return "warning";
+  if (normalizedStatus === STATUS_DRAFT) return "primary";
   return "neutral";
 }
 
 function getStatusLabel(status: string): string {
   return normalizeStatus(status).toUpperCase();
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error) return error.message;
+  return fallback;
+}
+
+
+function formatSitecoreMultilistValue(itemIds: string[]): string {
+  return itemIds.join("|");
+}
+
+function buildMediaUploadItemPath(folderPath: string, fileName: string): string {
+  const normalizedFolder = folderPath.trim().replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+  return normalizedFolder ? `${normalizedFolder}/${fileName}` : fileName;
+}
+
+function BlokLoader({ label }: { label: string }) {
+  return (
+    <span className="inline-flex items-center gap-2 text-sm font-medium text-neutral-fg" aria-live="polite">
+      <span
+        className="h-4 w-4 animate-spin rounded-full border-2 border-neutral-bg-active border-t-primary"
+        aria-hidden="true"
+      />
+      {label}
+    </span>
+  );
+}
+
+function ProductThumb({
+  src,
+  alt,
+  className,
+  onError,
+}: {
+  src: string;
+  alt: string;
+  className: string;
+  onError?: () => void;
+}) {
+  if (src.startsWith("blob:") || src.startsWith("data:")) {
+    return <img src={src} alt={alt} className={className} onError={onError} />;
+  }
+
+  return (
+    <Image
+      src={src}
+      alt={alt}
+      fill
+      sizes="(max-width: 768px) 50vw, 180px"
+      className={className}
+      unoptimized
+      onError={onError}
+    />
+  );
 }
 
 interface PendingImage {
@@ -92,16 +151,15 @@ interface MediaLibraryOption {
 
 function MediaLibraryPickThumb({ src, label }: { src?: string; label: string }) {
   const [loadFailed, setLoadFailed] = useState(false);
-  const showImg = Boolean(src) && !loadFailed;
+  const imageSrc = src?.trim();
 
   return (
     <div className="relative h-full min-h-[120px] w-full">
-      {showImg ? (
-        <img
-          src={src}
-          alt=""
+      {imageSrc && !loadFailed ? (
+        <ProductThumb
+          src={imageSrc}
+          alt={label}
           className="h-full w-full object-cover"
-          loading="lazy"
           onError={() => setLoadFailed(true)}
         />
       ) : (
@@ -128,7 +186,7 @@ function fileToBase64(file: File): Promise<string> {
 }
 
 export default function ProductPage() {
-  const { client, isInitialized, isLoading, error } = useMarketplace();
+  const { client, isInitialized, isLoading } = useMarketplace();
   const [rows, setRows] = useState<ProductRow[]>([]);
   const [keyword, setKeyword] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
@@ -146,7 +204,27 @@ export default function ProductPage() {
   const [selectedMediaItemIds, setSelectedMediaItemIds] = useState<string[]>([]);
   const [isMediaLibraryLoading, setIsMediaLibraryLoading] = useState(false);
   const [isUploadingToMediaLibrary, setIsUploadingToMediaLibrary] = useState(false);
+  const [isProcessingImages, setIsProcessingImages] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [messageVariant, setMessageVariant] = useState<AlertVariant>("default");
+  const createModalContentRef = useRef<HTMLDivElement>(null);
+  const isCreateModalBusy =
+    isCreating || isProcessingImages || isUploadingToMediaLibrary || isMediaLibraryLoading;
+
+  function showMessage(text: string, variant: AlertVariant = "default") {
+    setMessageVariant(variant);
+    setMessage(text);
+  }
+
+  function clearMessage() {
+    setMessage(null);
+    setMessageVariant("default");
+  }
+
+  function handleCreateModalOpenChange(open: boolean) {
+    clearMessage();
+    setIsCreateModalOpen(open);
+  }
 
   function clearSelectedImages() {
     setSelectedImages((prev) => {
@@ -159,6 +237,7 @@ export default function ProductPage() {
     const files = event.target.files ? Array.from(event.target.files) : [];
     if (!files.length) return;
 
+    setIsProcessingImages(true);
     try {
       const mappedImages = await Promise.all(
         files.map(async (file) => ({
@@ -171,9 +250,9 @@ export default function ProductPage() {
       );
       setSelectedImages((prev) => [...prev, ...mappedImages]);
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unable to process selected images.";
-      setMessage(errorMessage);
+      showMessage(getErrorMessage(error, "Unable to process selected images."), "destructive");
     } finally {
+      setIsProcessingImages(false);
       event.target.value = "";
     }
   }
@@ -188,11 +267,11 @@ export default function ProductPage() {
 
   async function handleLoadMediaLibrary() {
     if (!client || !isInitialized) {
-      setMessage("Marketplace client is not ready to load media library.");
+      showMessage("Marketplace client is not ready to load media library.", "destructive");
       return;
     }
     if (!MEDIA_LIBRARY_FOLDER_ID) {
-      setMessage("Missing NEXT_PUBLIC_SITECORE_MEDIA_LIBRARY_FOLDER_ID.");
+      showMessage("Missing NEXT_PUBLIC_SITECORE_MEDIA_LIBRARY_FOLDER_ID.", "destructive");
       return;
     }
 
@@ -205,10 +284,9 @@ export default function ProductPage() {
         MEDIA_LIBRARY_EDGE_FOLDER_PATH,
       );
       setMediaLibraryOptions(items);
-      setMessage(`Loaded ${items.length} images from media library.`);
+      showMessage(`Loaded ${items.length} images from media library.`);
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unable to load media library images.";
-      setMessage(errorMessage);
+      showMessage(getErrorMessage(error, "Unable to load media library images."), "destructive");
     } finally {
       setIsMediaLibraryLoading(false);
     }
@@ -216,11 +294,11 @@ export default function ProductPage() {
 
   async function handleUploadSelectedImagesToMediaLibrary() {
     if (!client || !isInitialized) {
-      setMessage("Marketplace client is not ready to upload media.");
+      showMessage("Marketplace client is not ready to upload media.", "destructive");
       return;
     }
     if (selectedImages.length === 0) {
-      setMessage("Choose at least one image before uploading to media library.");
+      showMessage("Choose at least one image before uploading to media library.", "destructive");
       return;
     }
 
@@ -228,7 +306,7 @@ export default function ProductPage() {
     try {
       const uploaded = await Promise.all(
         selectedImages.map(async (image) => {
-          const uploadPath = `${MEDIA_LIBRARY_UPLOAD_PATH}/${image.fileName}`;
+          const uploadPath = buildMediaUploadItemPath(MEDIA_LIBRARY_UPLOAD_PATH, image.fileName);
           return await uploadImageToMediaLibrary(client, {
             itemPath: uploadPath,
             file: image.file,
@@ -243,10 +321,9 @@ export default function ProductPage() {
       }
 
       await handleLoadMediaLibrary();
-      setMessage(`Uploaded ${uploaded.length} image(s) to media library.`);
+      showMessage(`Uploaded ${uploaded.length} image(s) to media library.`);
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unable to upload images to media library.";
-      setMessage(errorMessage);
+      showMessage(getErrorMessage(error, "Unable to upload images to media library."), "destructive");
     } finally {
       setIsUploadingToMediaLibrary(false);
     }
@@ -258,22 +335,24 @@ export default function ProductPage() {
     );
   }
 
-  async function handleLoadProducts() {
+  async function handleLoadProducts({ quiet = false }: { quiet?: boolean } = {}) {
     if (!client) {
-      setMessage("Marketplace client not ready. Showing fallback data.");
+      if (!quiet) showMessage("Marketplace client not ready.", "destructive");
       return;
     }
 
     setIsFetching(true);
-    setMessage(null);
+    if (!quiet) clearMessage();
 
     try {
       const data = await fetchMarketplaceProducts(client);
       setRows(data);
       setCurrentPage(1);
-      setMessage(`Loaded ${data.length} products from GraphQL.`);
-    } catch {
-      setMessage("Unable to query products. Showing fallback data.");
+      if (!quiet) showMessage(`Loaded ${data.length} products from GraphQL.`);
+    } catch (error) {
+      if (!quiet) {
+        showMessage(getErrorMessage(error, "Unable to query products."), "destructive");
+      }
     } finally {
       setIsFetching(false);
     }
@@ -281,10 +360,11 @@ export default function ProductPage() {
 
   async function handleCreateProduct() {
     if (!createForm.model_name.trim()) {
-      setMessage("Model name is required.");
+      showMessage("Model name is required.", "destructive");
       return;
     }
 
+    const mediaItemIdsValue = formatSitecoreMultilistValue(selectedMediaItemIds);
     const payload: CreateProductBody = {
       ...createForm,
       model_name: createForm.model_name.trim(),
@@ -296,23 +376,20 @@ export default function ProductPage() {
         mimeType: image.mimeType,
         contentBase64: image.contentBase64,
       })),
-      mediaItemIds: selectedMediaItemIds,
+      MediaItemIds: mediaItemIdsValue || undefined,
     };
 
     setIsCreating(true);
-    setMessage(null);
+    clearMessage();
     try {
       await createProductWithWorkato(payload);
-      setMessage("Product created successfully.");
       setCreateForm(DEFAULT_CREATE_FORM);
       clearSelectedImages();
       setSelectedMediaItemIds([]);
-      setIsCreateModalOpen(false);
-      await handleLoadProducts();
+      handleCreateModalOpenChange(false);
+      await handleLoadProducts({ quiet: true });
     } catch (createError) {
-      const errorMessage =
-        createError instanceof Error ? createError.message : "Create product API failed.";
-      setMessage(errorMessage);
+      showMessage(getErrorMessage(createError, "Create product API failed."), "destructive");
     } finally {
       setIsCreating(false);
     }
@@ -362,6 +439,15 @@ export default function ProductPage() {
     }
   }, [client, hasAutoLoaded, isInitialized]);
 
+  useEffect(() => {
+    if (!message || !isCreateModalOpen) return;
+
+    createModalContentRef.current?.scrollTo({
+      top: 0,
+      behavior: "smooth",
+    });
+  }, [isCreateModalOpen, message]);
+
   return (
     <div className="space-y-6">
       <section className="space-y-2">
@@ -386,14 +472,20 @@ export default function ProductPage() {
             <Button
               variant="outline"
               className="border-sidebar-border"
-              onClick={handleLoadProducts}
+              onClick={() => void handleLoadProducts()}
               disabled={isLoading || isFetching || !isInitialized}
             >
-              <Icon path={mdi.mdiDatabaseSearch} className="mr-2 h-4 w-4" />
-              {isFetching ? "Loading..." : "Search"}
+              {isFetching ? (
+                <BlokLoader label="Searching..." />
+              ) : (
+                <>
+                  <Icon path={mdi.mdiDatabaseSearch} className="mr-2 h-4 w-4" />
+                  Search
+                </>
+              )}
             </Button>
             <div className="md:ml-auto">
-              <Button onClick={() => setIsCreateModalOpen(true)}>
+              <Button onClick={() => handleCreateModalOpenChange(true)}>
                 <Icon path={mdi.mdiPlus} className="mr-2 h-4 w-4" />
                 Create New Product
               </Button>
@@ -430,11 +522,17 @@ export default function ProductPage() {
               <Button
                 variant="outline"
                 className="border-sidebar-border"
-                onClick={handleLoadProducts}
+                onClick={() => void handleLoadProducts()}
                 disabled={isLoading || isFetching || !isInitialized}
               >
-                <Icon path={mdi.mdiDatabaseSearch} className="mr-2 h-4 w-4" />
-                Filter
+                {isFetching ? (
+                  <BlokLoader label="Filtering..." />
+                ) : (
+                  <>
+                    <Icon path={mdi.mdiDatabaseSearch} className="mr-2 h-4 w-4" />
+                    Filter
+                  </>
+                )}
               </Button>
               <Button
                 variant="ghost"
@@ -457,13 +555,42 @@ export default function ProductPage() {
         </CardContent>
       </Card>
 
-      <Sheet open={isCreateModalOpen} onOpenChange={setIsCreateModalOpen}>
-        <SheetContent side="right" className="w-full sm:max-w-2xl lg:max-w-4xl overflow-y-auto">
+      <Sheet open={isCreateModalOpen} onOpenChange={handleCreateModalOpenChange}>
+        <SheetContent
+          ref={createModalContentRef}
+          side="right"
+          className="w-full sm:max-w-2xl lg:max-w-4xl overflow-y-auto"
+        >
           <SheetHeader>
             <SheetTitle>Add New Model</SheetTitle>
             <SheetDescription>Create a new product model</SheetDescription>
           </SheetHeader>
           <div className="space-y-4 px-4">
+            {isCreateModalBusy && (
+              <div className="rounded-md border border-sidebar-border bg-neutral-bg px-3 py-2">
+                <BlokLoader
+                  label={
+                    isCreating
+                      ? "Creating product..."
+                      : isUploadingToMediaLibrary
+                        ? "Uploading images..."
+                        : isMediaLibraryLoading
+                          ? "Loading media library..."
+                          : "Processing images..."
+                  }
+                />
+              </div>
+            )}
+
+            {message && (
+              <Alert
+                variant={messageVariant}
+                className={messageVariant === "default" ? "border-sidebar-border bg-muted" : undefined}
+              >
+                <AlertDescription>{message}</AlertDescription>
+              </Alert>
+            )}
+
             <div className="space-y-1">
               <label className="text-sm font-medium text-body-text" htmlFor="model-name">
                 Model name
@@ -562,16 +689,20 @@ export default function ProductPage() {
                 accept="image/*"
                 multiple
                 onChange={handleImageSelect}
+                disabled={isProcessingImages || isCreating}
               />
+              {isProcessingImages ? <BlokLoader label="Preparing selected images..." /> : null}
               {selectedImages.length > 0 ? (
                 <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
                   {selectedImages.map((image, index) => (
                     <div key={`${image.fileName}-${index}`} className="rounded-md border border-sidebar-border p-2">
-                      <img
-                        src={image.previewUrl}
-                        alt={image.fileName}
-                        className="h-24 w-full rounded-md object-cover"
-                      />
+                      <div className="relative h-24 w-full overflow-hidden rounded-md">
+                        <ProductThumb
+                          src={image.previewUrl}
+                          alt={image.fileName}
+                          className="h-full w-full object-cover"
+                        />
+                      </div>
                       <p className="mt-2 truncate text-xs text-subtle-text">{image.fileName}</p>
                       <Button
                         type="button"
@@ -579,6 +710,7 @@ export default function ProductPage() {
                         size="xs"
                         className="mt-1"
                         onClick={() => removeSelectedImage(index)}
+                        disabled={isProcessingImages || isCreating || isUploadingToMediaLibrary}
                       >
                         Remove
                       </Button>
@@ -594,16 +726,37 @@ export default function ProductPage() {
                   type="button"
                   variant="outline"
                   onClick={handleUploadSelectedImagesToMediaLibrary}
+                  disabled={
+                    isUploadingToMediaLibrary ||
+                    isMediaLibraryLoading ||
+                    isProcessingImages ||
+                    isCreating ||
+                    !isInitialized
+                  }
                 >
-                  {isUploadingToMediaLibrary ? "Uploading..." : "Upload selected to Media Library"}
+                  {isUploadingToMediaLibrary ? (
+                    <BlokLoader label="Uploading..." />
+                  ) : (
+                    "Upload selected to Media Library"
+                  )}
                 </Button>
                 <Button
                   type="button"
                   variant="outline"
                   onClick={handleLoadMediaLibrary}
-                  disabled={isMediaLibraryLoading || !isInitialized}
+                  disabled={
+                    isMediaLibraryLoading ||
+                    isUploadingToMediaLibrary ||
+                    isProcessingImages ||
+                    isCreating ||
+                    !isInitialized
+                  }
                 >
-                  {isMediaLibraryLoading ? "Loading..." : "Load Media Library Images"}
+                  {isMediaLibraryLoading ? (
+                    <BlokLoader label="Loading..." />
+                  ) : (
+                    "Load Media Library Images"
+                  )}
                 </Button>
               </div>
             </div>
@@ -631,6 +784,7 @@ export default function ProductPage() {
                               type="checkbox"
                               checked={selected}
                               onChange={() => toggleSelectedMediaItem(item.itemId)}
+                              disabled={isCreateModalBusy}
                               className="absolute left-2 top-2 z-10 h-4 w-4 rounded border-sidebar-border"
                               aria-label={`Select ${item.name}`}
                             />
@@ -659,31 +813,25 @@ export default function ProductPage() {
               onClick={() => {
                 clearSelectedImages();
                 setSelectedMediaItemIds([]);
-                setIsCreateModalOpen(false);
+                handleCreateModalOpenChange(false);
               }}
-              disabled={isCreating}
+              disabled={isCreateModalBusy}
             >
               Cancel
             </Button>
-            <Button onClick={handleCreateProduct} disabled={isCreating}>
-              <Icon path={mdi.mdiPlus} className="mr-2 h-4 w-4" />
-              {isCreating ? "Creating..." : "Create Model"}
+            <Button onClick={handleCreateProduct} disabled={isCreateModalBusy}>
+              {isCreating ? (
+                <BlokLoader label="Creating..." />
+              ) : (
+                <>
+                  <Icon path={mdi.mdiPlus} className="mr-2 h-4 w-4" />
+                  Create Model
+                </>
+              )}
             </Button>
           </SheetFooter>
         </SheetContent>
       </Sheet>
-
-      {message ? (
-        <div className="rounded-md border border-sidebar-border bg-muted px-3 py-2 text-sm text-subtle-text">
-          {message}
-        </div>
-      ) : null}
-
-      {error ? (
-        <div className="rounded-md border border-danger bg-danger-bg px-3 py-2 text-sm text-danger-fg">
-          {String(error)}
-        </div>
-      ) : null}
 
       <Card className="border-sidebar-border">
         <CardContent className="p-0">
@@ -700,7 +848,13 @@ export default function ProductPage() {
                 </tr>
               </thead>
               <tbody>
-                {paginatedRows.length === 0 ? (
+                {isFetching ? (
+                  <tr>
+                    <td className="px-4 py-8 text-center" colSpan={6}>
+                      <BlokLoader label="Loading products..." />
+                    </td>
+                  </tr>
+                ) : paginatedRows.length === 0 ? (
                   <tr>
                     <td className="px-4 py-4 text-subtle-text" colSpan={6}>
                       No products found.

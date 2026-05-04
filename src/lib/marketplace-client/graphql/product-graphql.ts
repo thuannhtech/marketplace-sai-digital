@@ -168,6 +168,6 @@ export async function fetchMarketplaceProducts(client: ClientSDK): Promise<Produ
     return products;
   } catch (error) {
     console.error("[product-query] GraphQL query failed", error);
-    return [];
+    throw error;
   }
 }
