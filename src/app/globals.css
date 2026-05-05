@@ -647,9 +647,11 @@
     }
   body {
     @apply bg-background text-foreground;
+    overflow-x: auto;
     }
   html {
     @apply font-sans;
+    overflow-x: auto;
     }
 }
 

@@ -1,7 +1,7 @@
 import { ClientSDK } from "@sitecore-marketplace-sdk/client";
 import { ProductRow } from "@/src/lib/domain/product/product.types";
-import { asMarketplaceSdkClient } from "@/src/lib/marketplace-client/marketplace-client";
-import { resolveSitecoreContextId } from "@/src/lib/marketplace-client/marketplace-context";
+import { asMarketplaceSdkClient } from "@/src/lib/marketplace-client/client";
+import { resolveSitecoreContextId } from "@/src/lib/marketplace-client/context";
 
 const marketplaceProductsQuery = `
   query ProductListing {

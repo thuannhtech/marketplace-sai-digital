@@ -1,11 +1,13 @@
-export { asMarketplaceSdkClient } from "./marketplace-client";
-export { resolveSitecoreContextId } from "./marketplace-context";
-export { fetchMarketplaceProducts } from "./graphql/product-graphql";
+export { asMarketplaceSdkClient } from "./client";
+export { resolveSitecoreContextId } from "./context";
+export { fetchMarketplaceProducts } from "./graph/product";
 export {
-  fetchEdgePublicUrlByItemPath,
   getMediaItemById,
   listMediaLibraryItems,
-  listMediaLibraryItemsFromEdge,
   uploadImageToMediaLibrary,
-} from "./graphql/media-library-graphql";
+} from "./graph/media-library";
+export {
+  fetchEdgePublicUrlByItemPath,
+  listMediaLibraryItemsFromEdge,
+} from "./edge";
 export type { ProductRow } from "@/src/lib/domain/product/product.types";

@@ -2,7 +2,7 @@
 
 import * as mdi from "@mdi/js";
 import Image from "next/image";
-import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -20,11 +20,11 @@ import { Icon } from "@/lib/icon";
 import { createProductWithWorkato } from "@/src/lib/api/workato-product-api";
 
 import { CreateProductBody, CreateProductImage, ProductRow } from "@/src/lib/domain/product/product.types";
-import { fetchMarketplaceProducts } from "@/src/lib/marketplace-client/graphql/product-graphql";
 import {
+  fetchMarketplaceProducts,
   listMediaLibraryItems,
   uploadImageToMediaLibrary,
-} from "@/src/lib/marketplace-client/graphql/media-library-graphql";
+} from "@/src/lib/marketplace-client";
 import { useMarketplace } from "@/src/providers/MarketplaceProvider";
 
 const PAGE_SIZE = 10;
@@ -172,6 +172,285 @@ function MediaLibraryPickThumb({ src, label }: { src?: string; label: string }) 
   );
 }
 
+const SelectedImagesGrid = memo(function SelectedImagesGrid({
+  selectedImages,
+  isProcessingImages,
+  isCreating,
+  isUploadingToMediaLibrary,
+  onRemove,
+}: {
+  selectedImages: PendingImage[];
+  isProcessingImages: boolean;
+  isCreating: boolean;
+  isUploadingToMediaLibrary: boolean;
+  onRemove: (index: number) => void;
+}) {
+  if (selectedImages.length === 0) {
+    return <p className="text-xs text-subtle-text">No image selected.</p>;
+  }
+
+  return (
+    <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      {selectedImages.map((image, index) => (
+        <div key={`${image.fileName}-${index}`} className="rounded-md border border-sidebar-border p-2">
+          <div className="relative h-24 w-full overflow-hidden rounded-md">
+            <ProductThumb
+              src={image.previewUrl}
+              alt={image.fileName}
+              className="h-full w-full object-cover"
+            />
+          </div>
+          <p className="mt-2 truncate text-xs text-subtle-text">{image.fileName}</p>
+          <Button
+            type="button"
+            variant="ghost"
+            size="xs"
+            className="mt-1"
+            onClick={() => onRemove(index)}
+            disabled={isProcessingImages || isCreating || isUploadingToMediaLibrary}
+          >
+            Remove
+          </Button>
+        </div>
+      ))}
+    </div>
+  );
+});
+
+const MediaLibraryGrid = memo(function MediaLibraryGrid({
+  mediaLibraryOptions,
+  selectedMediaItemIds,
+  isCreateModalBusy,
+  onToggle,
+}: {
+  mediaLibraryOptions: MediaLibraryOption[];
+  selectedMediaItemIds: string[];
+  isCreateModalBusy: boolean;
+  onToggle: (itemId: string) => void;
+}) {
+  if (mediaLibraryOptions.length === 0) {
+    return (
+      <p className="text-xs text-subtle-text">
+        No media items loaded. Click "Load Media Library Images".
+      </p>
+    );
+  }
+
+  return (
+    <div className="max-h-96 overflow-auto rounded-md border border-sidebar-border p-2">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        {mediaLibraryOptions.map((item) => {
+          const selected = selectedMediaItemIds.includes(item.itemId);
+          return (
+            <label
+              key={item.itemId}
+              className={`group cursor-pointer overflow-hidden rounded-md border transition-colors ${
+                selected
+                  ? "border-primary ring-1 ring-primary"
+                  : "border-sidebar-border hover:bg-muted"
+              }`}
+            >
+              <div className="relative aspect-square bg-muted">
+                <input
+                  type="checkbox"
+                  checked={selected}
+                  onChange={() => onToggle(item.itemId)}
+                  disabled={isCreateModalBusy}
+                  className="absolute left-2 top-2 z-10 h-4 w-4 rounded border-sidebar-border"
+                  aria-label={`Select ${item.name}`}
+                />
+                <MediaLibraryPickThumb src={item.previewUrl} label={item.name} />
+              </div>
+              <div className="space-y-0.5 p-2">
+                <p className="truncate text-xs font-medium text-body-text">{item.name}</p>
+                <p className="truncate text-[10px] text-subtle-text">{item.path}</p>
+              </div>
+            </label>
+          );
+        })}
+      </div>
+    </div>
+  );
+});
+
+const ProductTable = memo(function ProductTable({
+  isFetching,
+  paginatedRows,
+  visibleRowsLength,
+  pageStartIndex,
+  currentPage,
+  totalPages,
+  onPreviousPage,
+  onNextPage,
+}: {
+  isFetching: boolean;
+  paginatedRows: ProductRow[];
+  visibleRowsLength: number;
+  pageStartIndex: number;
+  currentPage: number;
+  totalPages: number;
+  onPreviousPage: () => void;
+  onNextPage: () => void;
+}) {
+  return (
+    <Card className="border-sidebar-border">
+      <CardContent className="p-0">
+        <div className="w-full max-w-full overflow-x-auto overscroll-x-contain">
+          <table className="w-full min-w-[760px] text-sm">
+            <thead className="bg-muted">
+              <tr className="border-b border-sidebar-border text-left">
+                <th className="px-4 py-3 font-semibold">Model Name</th>
+                <th className="px-4 py-3 font-semibold">Description</th>
+                <th className="px-4 py-3 font-semibold">Price</th>
+                <th className="px-4 py-3 font-semibold">Quantity</th>
+                <th className="px-4 py-3 font-semibold">Ordercloud ID</th>
+                <th className="px-4 py-3 font-semibold">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {isFetching ? (
+                <tr>
+                  <td className="px-4 py-8 text-center" colSpan={6}>
+                    <BlokLoader label="Loading products..." />
+                  </td>
+                </tr>
+              ) : paginatedRows.length === 0 ? (
+                <tr>
+                  <td className="px-4 py-4 text-subtle-text" colSpan={6}>
+                    No products found.
+                  </td>
+                </tr>
+              ) : (
+                paginatedRows.map((row) => (
+                  <tr key={row.id} className="border-b border-sidebar-border/70">
+                    <td className="px-4 py-3 font-medium">{row.modelName}</td>
+                    <td className="px-4 py-3">{row.description}</td>
+                    <td className="px-4 py-3">{formatPrice(row.price)}</td>
+                    <td className="px-4 py-3">{row.quantity}</td>
+                    <td className="px-4 py-3">{row.ordercloud_id}</td>
+                    <td className="px-4 py-3">
+                      <Badge colorScheme={getStatusBadgeColor(row.status)}>
+                        {getStatusLabel(row.status)}
+                      </Badge>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+        <div className="flex flex-col gap-3 border-t border-sidebar-border px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-subtle-text">
+            Showing {visibleRowsLength === 0 ? 0 : pageStartIndex + 1}-
+            {Math.min(pageStartIndex + PAGE_SIZE, visibleRowsLength)} of {visibleRowsLength}
+          </p>
+          <div className="flex items-center gap-2 overflow-x-auto">
+            <Button
+              variant="outline"
+              className="border-sidebar-border"
+              onClick={onPreviousPage}
+              disabled={currentPage === 1}
+            >
+              Previous
+            </Button>
+            <span className="text-subtle-text">
+              Page {currentPage} of {totalPages}
+            </span>
+            <Button
+              variant="outline"
+              className="border-sidebar-border"
+              onClick={onNextPage}
+              disabled={currentPage === totalPages}
+            >
+              Next
+            </Button>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+});
+
+function HtmlDescriptionEditor({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const editorRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor || editor.innerHTML === value) return;
+    editor.innerHTML = value;
+  }, [value]);
+
+  function runCommand(command: string, commandValue?: string) {
+    editorRef.current?.focus();
+    document.execCommand(command, false, commandValue);
+    onChange(editorRef.current?.innerHTML ?? "");
+  }
+
+  function addLink() {
+    const url = window.prompt("URL");
+    if (!url?.trim()) return;
+    runCommand("createLink", url.trim());
+  }
+
+  return (
+    <div className="overflow-hidden rounded-md border border-input bg-body-bg">
+      <div className="flex flex-wrap gap-1 border-b border-input bg-muted p-1">
+        <Button type="button" variant="ghost" size="icon" aria-label="Bold" onClick={() => runCommand("bold")}>
+          <Icon path={mdi.mdiFormatBold} className="h-4 w-4" />
+        </Button>
+        <Button type="button" variant="ghost" size="icon" aria-label="Italic" onClick={() => runCommand("italic")}>
+          <Icon path={mdi.mdiFormatItalic} className="h-4 w-4" />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          aria-label="Bulleted list"
+          onClick={() => runCommand("insertUnorderedList")}
+        >
+          <Icon path={mdi.mdiFormatListBulleted} className="h-4 w-4" />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          aria-label="Numbered list"
+          onClick={() => runCommand("insertOrderedList")}
+        >
+          <Icon path={mdi.mdiFormatListNumbered} className="h-4 w-4" />
+        </Button>
+        <Button type="button" variant="ghost" size="icon" aria-label="Link" onClick={addLink}>
+          <Icon path={mdi.mdiLinkVariant} className="h-4 w-4" />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          aria-label="Clear formatting"
+          onClick={() => runCommand("removeFormat")}
+        >
+          <Icon path={mdi.mdiFormatClear} className="h-4 w-4" />
+        </Button>
+      </div>
+      <div
+        ref={editorRef}
+        id="description"
+        className="min-h-32 w-full px-3 py-2 text-sm text-body-text outline-none empty:before:text-muted-foreground empty:before:content-[attr(data-placeholder)]"
+        contentEditable
+        data-placeholder="Write a short product description"
+        onInput={(event) => onChange(event.currentTarget.innerHTML)}
+        suppressContentEditableWarning
+      />
+    </div>
+  );
+}
+
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -223,15 +502,18 @@ export default function ProductPage() {
 
   function handleCreateModalOpenChange(open: boolean) {
     clearMessage();
+    if (open) {
+      setMediaLibraryOptions([]);
+    }
     setIsCreateModalOpen(open);
   }
 
-  function clearSelectedImages() {
+  const clearSelectedImages = useCallback(function clearSelectedImages() {
     setSelectedImages((prev) => {
       for (const image of prev) URL.revokeObjectURL(image.previewUrl);
       return [];
     });
-  }
+  }, []);
 
   async function handleImageSelect(event: ChangeEvent<HTMLInputElement>) {
     const files = event.target.files ? Array.from(event.target.files) : [];
@@ -257,13 +539,13 @@ export default function ProductPage() {
     }
   }
 
-  function removeSelectedImage(index: number) {
+  const removeSelectedImage = useCallback(function removeSelectedImage(index: number) {
     setSelectedImages((prev) => {
       const target = prev[index];
       if (target?.previewUrl) URL.revokeObjectURL(target.previewUrl);
       return prev.filter((_, idx) => idx !== index);
     });
-  }
+  }, []);
 
   async function handleLoadMediaLibrary() {
     if (!client || !isInitialized) {
@@ -320,7 +602,6 @@ export default function ProductPage() {
         setSelectedMediaItemIds((prev) => Array.from(new Set([...prev, ...uploadedIds])));
       }
 
-      await handleLoadMediaLibrary();
       showMessage(`Uploaded ${uploaded.length} image(s) to media library.`);
     } catch (error) {
       showMessage(getErrorMessage(error, "Unable to upload images to media library."), "destructive");
@@ -329,11 +610,11 @@ export default function ProductPage() {
     }
   }
 
-  function toggleSelectedMediaItem(itemId: string) {
+  const toggleSelectedMediaItem = useCallback(function toggleSelectedMediaItem(itemId: string) {
     setSelectedMediaItemIds((prev) =>
       prev.includes(itemId) ? prev.filter((id) => id !== itemId) : [...prev, itemId]
     );
-  }
+  }, []);
 
   async function handleLoadProducts({ quiet = false }: { quiet?: boolean } = {}) {
     if (!client) {
@@ -421,6 +702,12 @@ export default function ProductPage() {
   const totalPages = Math.max(1, Math.ceil(visibleRows.length / PAGE_SIZE));
   const pageStartIndex = (currentPage - 1) * PAGE_SIZE;
   const paginatedRows = visibleRows.slice(pageStartIndex, pageStartIndex + PAGE_SIZE);
+  const handlePreviousPage = useCallback(() => {
+    setCurrentPage((prev) => Math.max(1, prev - 1));
+  }, []);
+  const handleNextPage = useCallback(() => {
+    setCurrentPage((prev) => Math.min(totalPages, prev + 1));
+  }, [totalPages]);
 
   useEffect(() => {
     if (currentPage > totalPages) {
@@ -601,38 +888,8 @@ export default function ProductPage() {
                 onChange={(event) =>
                   setCreateForm((prev) => ({ ...prev, model_name: event.target.value }))
                 }
-                placeholder="e.g. iPhone 16 Pro"
               />
             </div>
-
-            <div className="space-y-1">
-              <label className="text-sm font-medium text-body-text" htmlFor="category">
-                Category
-              </label>
-              <Input
-                id="category"
-                value={createForm.category}
-                onChange={(event) =>
-                  setCreateForm((prev) => ({ ...prev, category: event.target.value }))
-                }
-                placeholder="e.g. Smartphones"
-              />
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-sm font-medium text-body-text" htmlFor="catalog">
-                Catalog
-              </label>
-              <Input
-                id="catalog"
-                value={createForm.catalog}
-                onChange={(event) =>
-                  setCreateForm((prev) => ({ ...prev, catalog: event.target.value }))
-                }
-                placeholder="e.g. Electronics"
-              />
-            </div>
-
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <label className="text-sm font-medium text-body-text" htmlFor="price">
@@ -670,12 +927,9 @@ export default function ProductPage() {
               <label className="text-sm font-medium text-body-text" htmlFor="description">
                 Description
               </label>
-              <textarea
-                id="description"
-                className="border-input focus:border-primary focus:ring-primary text-md font-regular placeholder-blackAlpha-400 min-h-24 w-full rounded-md border bg-body-bg px-3 py-2 focus:ring-1 focus:outline-none"
+              <HtmlDescriptionEditor
                 value={createForm.desc}
-                onChange={(event) => setCreateForm((prev) => ({ ...prev, desc: event.target.value }))}
-                placeholder="Write a short product description"
+                onChange={(desc) => setCreateForm((prev) => ({ ...prev, desc }))}
               />
             </div>
 
@@ -692,34 +946,13 @@ export default function ProductPage() {
                 disabled={isProcessingImages || isCreating}
               />
               {isProcessingImages ? <BlokLoader label="Preparing selected images..." /> : null}
-              {selectedImages.length > 0 ? (
-                <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-                  {selectedImages.map((image, index) => (
-                    <div key={`${image.fileName}-${index}`} className="rounded-md border border-sidebar-border p-2">
-                      <div className="relative h-24 w-full overflow-hidden rounded-md">
-                        <ProductThumb
-                          src={image.previewUrl}
-                          alt={image.fileName}
-                          className="h-full w-full object-cover"
-                        />
-                      </div>
-                      <p className="mt-2 truncate text-xs text-subtle-text">{image.fileName}</p>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="xs"
-                        className="mt-1"
-                        onClick={() => removeSelectedImage(index)}
-                        disabled={isProcessingImages || isCreating || isUploadingToMediaLibrary}
-                      >
-                        Remove
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-xs text-subtle-text">No image selected.</p>
-              )}
+              <SelectedImagesGrid
+                selectedImages={selectedImages}
+                isProcessingImages={isProcessingImages}
+                isCreating={isCreating}
+                isUploadingToMediaLibrary={isUploadingToMediaLibrary}
+                onRemove={removeSelectedImage}
+              />
 
               <div className="flex flex-wrap gap-2 pt-2">
                 <Button
@@ -765,45 +998,12 @@ export default function ProductPage() {
               <p className="text-sm font-medium text-body-text">
                 Choose images from Media Library ({selectedMediaItemIds.length} selected)
               </p>
-              {mediaLibraryOptions.length > 0 ? (
-                <div className="max-h-96 overflow-auto rounded-md border border-sidebar-border p-2">
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                    {mediaLibraryOptions.map((item) => {
-                      const selected = selectedMediaItemIds.includes(item.itemId);
-                      return (
-                        <label
-                          key={item.itemId}
-                          className={`group cursor-pointer overflow-hidden rounded-md border transition-colors ${
-                            selected
-                              ? "border-primary ring-1 ring-primary"
-                              : "border-sidebar-border hover:bg-muted"
-                          }`}
-                        >
-                          <div className="relative aspect-square bg-muted">
-                            <input
-                              type="checkbox"
-                              checked={selected}
-                              onChange={() => toggleSelectedMediaItem(item.itemId)}
-                              disabled={isCreateModalBusy}
-                              className="absolute left-2 top-2 z-10 h-4 w-4 rounded border-sidebar-border"
-                              aria-label={`Select ${item.name}`}
-                            />
-                            <MediaLibraryPickThumb src={item.previewUrl} label={item.name} />
-                          </div>
-                          <div className="space-y-0.5 p-2">
-                            <p className="truncate text-xs font-medium text-body-text">{item.name}</p>
-                            <p className="truncate text-[10px] text-subtle-text">{item.path}</p>
-                          </div>
-                        </label>
-                      );
-                    })}
-                  </div>
-                </div>
-              ) : (
-                <p className="text-xs text-subtle-text">
-                  No media items loaded. Click "Load Media Library Images".
-                </p>
-              )}
+              <MediaLibraryGrid
+                mediaLibraryOptions={mediaLibraryOptions}
+                selectedMediaItemIds={selectedMediaItemIds}
+                isCreateModalBusy={isCreateModalBusy}
+                onToggle={toggleSelectedMediaItem}
+              />
             </div>
           </div>
           <SheetFooter>
@@ -833,83 +1033,16 @@ export default function ProductPage() {
         </SheetContent>
       </Sheet>
 
-      <Card className="border-sidebar-border">
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] text-sm">
-              <thead className="bg-muted">
-                <tr className="border-b border-sidebar-border text-left">
-                  <th className="px-4 py-3 font-semibold">Model Name</th>
-                  <th className="px-4 py-3 font-semibold">Description</th>
-                  <th className="px-4 py-3 font-semibold">Price</th>
-                  <th className="px-4 py-3 font-semibold">Quantity</th>
-                  <th className="px-4 py-3 font-semibold">Ordercloud ID</th>
-                  <th className="px-4 py-3 font-semibold">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {isFetching ? (
-                  <tr>
-                    <td className="px-4 py-8 text-center" colSpan={6}>
-                      <BlokLoader label="Loading products..." />
-                    </td>
-                  </tr>
-                ) : paginatedRows.length === 0 ? (
-                  <tr>
-                    <td className="px-4 py-4 text-subtle-text" colSpan={6}>
-                      No products found.
-                    </td>
-                  </tr>
-                ) : (
-                  paginatedRows.map((row) => (
-                    <tr key={row.id} className="border-b border-sidebar-border/70">
-                      <td className="px-4 py-3 font-medium">{row.modelName}</td>
-                      <td className="px-4 py-3">{row.description}</td>
-                      <td className="px-4 py-3">{formatPrice(row.price)}</td>
-                      <td className="px-4 py-3">{row.quantity}</td>
-                      <td className="px-4 py-3">{row.ordercloud_id}</td>
-                      <td className="px-4 py-3">
-                        <Badge
-                          colorScheme={getStatusBadgeColor(row.status)}
-                        >
-                          {getStatusLabel(row.status)}
-                        </Badge>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-          <div className="flex items-center justify-between border-t border-sidebar-border px-4 py-3 text-sm">
-            <p className="text-subtle-text">
-              Showing {visibleRows.length === 0 ? 0 : pageStartIndex + 1}-
-              {Math.min(pageStartIndex + PAGE_SIZE, visibleRows.length)} of {visibleRows.length}
-            </p>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                className="border-sidebar-border"
-                onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
-                disabled={currentPage === 1}
-              >
-                Previous
-              </Button>
-              <span className="text-subtle-text">
-                Page {currentPage} of {totalPages}
-              </span>
-              <Button
-                variant="outline"
-                className="border-sidebar-border"
-                onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
-                disabled={currentPage === totalPages}
-              >
-                Next
-              </Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      <ProductTable
+        isFetching={isFetching}
+        paginatedRows={paginatedRows}
+        visibleRowsLength={visibleRows.length}
+        pageStartIndex={pageStartIndex}
+        currentPage={currentPage}
+        totalPages={totalPages}
+        onPreviousPage={handlePreviousPage}
+        onNextPage={handleNextPage}
+      />
     </div>
   );
 }

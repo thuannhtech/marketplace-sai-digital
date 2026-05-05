@@ -23,7 +23,7 @@ export function BrowserLayout({ children }: { children: React.ReactNode }) {
   }, [width]);
 
   return (
-    <div ref={containerRef} className="layout-container h-screen w-full overflow-hidden">
+    <div ref={containerRef} className="layout-container h-screen w-full overflow-auto">
       <SidebarProvider open={open} onOpenChange={setOpen}>
         <AppSidebar />
         <SidebarInset>
