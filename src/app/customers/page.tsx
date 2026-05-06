@@ -266,12 +266,23 @@ export default function CustomersPage() {
                   return (
                     <tr key={user.ID} className="hover:bg-muted/30 transition-colors whitespace-nowrap">
                       <td className="px-4 py-3">
-                        <Link href={`/customers/${user.ID}`} className="text-primary hover:underline font-medium">
-                          View
+                        <Link href={`/customers/${user.ID}`}>
+                          <Button variant="outline" size="sm">
+                            <Icon path={mdi.mdiEyeOutline} className="mr-2 h-4 w-4" />
+                            View
+                          </Button>
                         </Link>
                       </td>
-                      <td className="px-4 py-3 font-mono text-xs">{user.ID}</td>
-                      <td className="px-4 py-3 font-medium">{`${user.FirstName || ''} ${user.LastName || ''}`.trim() || 'N/A'}</td>
+                      <td className="px-4 py-3 font-mono text-xs">
+                        <Link href={`/customers/${user.ID}`} className="text-primary hover:underline">
+                          {user.ID}
+                        </Link>
+                      </td>
+                      <td className="px-4 py-3 font-medium">
+                        <Link href={`/customers/${user.ID}`} className="text-primary hover:underline">
+                          {`${user.FirstName || ""} ${user.LastName || ""}`.trim() || "N/A"}
+                        </Link>
+                      </td>
                       <td className="px-4 py-3">{user.Email || "N/A"}</td>
                       <td className="px-4 py-3">{user.xp?.PersonalInformation?.AccountType || "N/A"}</td>
                       <td className="px-4 py-3">{dobDisplay}</td>

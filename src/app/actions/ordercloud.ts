@@ -52,6 +52,16 @@ export async function getOrderCloudToken() {
   }
 }
 
+/** Buyer ID from env — used only to scope incoming orders (`Orders.List` / detail check). */
+function resolveOrderCloudBuyerId(): string {
+  const raw = process.env.NEXT_PUBLIC_ORDERCLOUD_BUYER_ID || process.env.ORDERCLOUD_BUYER_ID;
+  const buyerId = typeof raw === "string" ? raw.trim() : "";
+  if (!buyerId) {
+    throw new Error("Missing Buyer ID in environment variables");
+  }
+  return buyerId;
+}
+
 export async function getIncomingOrders() {
   try {
     const auth = await getOrderCloudToken();
@@ -61,8 +71,9 @@ export async function getIncomingOrders() {
 
     const { Orders, Tokens } = await import("ordercloud-javascript-sdk");
     Tokens.SetAccessToken(auth.token);
-    
-    const orders = await Orders.List("Incoming");
+
+    const buyerId = resolveOrderCloudBuyerId();
+    const orders = await Orders.List("Incoming", { buyerID: buyerId });
     
     return { success: true, data: JSON.parse(JSON.stringify(orders.Items)) };
   } catch (error: any) {
@@ -86,9 +97,13 @@ export async function getOrderDetail(orderId: string) {
 
     const { Orders, Tokens, LineItems, Me, Payments, CreditCards } = await import("ordercloud-javascript-sdk");
     Tokens.SetAccessToken(auth.token);
-    
+
+    const buyerId = resolveOrderCloudBuyerId();
     const order = await Orders.Get("Incoming", orderId);
-    
+    if (order.FromCompanyID !== buyerId) {
+      return { success: false, error: "Order not found or does not belong to this buyer." };
+    }
+
     const [lineItemsRes, promotionsRes, paymentsRes] = await Promise.all([
       LineItems.List("All", orderId).catch(() => ({ Items: [] })),
       Orders.ListPromotions("All", orderId).catch(() => ({ Items: [] })),
@@ -288,6 +303,7 @@ export async function getCustomers(page = 1, pageSize = 20, search?: string, fil
     const { Users, Tokens } = await import("ordercloud-javascript-sdk");
     Tokens.SetAccessToken(auth.token);
 
+    // OrderCloud Users.List is always scoped to a buyer: /buyers/{buyerID}/users
     const buyerId = process.env.NEXT_PUBLIC_ORDERCLOUD_BUYER_ID || process.env.ORDERCLOUD_BUYER_ID;
     if (!buyerId) throw new Error("Missing Buyer ID in environment variables");
 
@@ -316,5 +332,258 @@ export async function getCustomers(page = 1, pageSize = 20, search?: string, fil
   } catch (err: any) {
     console.error("Get Customers Error:", err);
     return { success: false, error: err.message || "Failed to get customers" };
+  }
+}
+
+export async function getCustomerDetail(customerId: string) {
+  try {
+    const auth = await getOrderCloudToken();
+    if (!auth.success || !auth.token) throw new Error("Auth failed");
+
+    const { Users, Tokens, Addresses, UserGroups } = await import("ordercloud-javascript-sdk");
+    Tokens.SetAccessToken(auth.token);
+
+    const buyerId = process.env.NEXT_PUBLIC_ORDERCLOUD_BUYER_ID || process.env.ORDERCLOUD_BUYER_ID;
+    if (!buyerId) throw new Error("Missing Buyer ID in environment variables");
+
+    const customer = await Users.Get(buyerId, customerId);
+
+    const [groupAssignmentsRes, addressAssignmentsRes] = await Promise.all([
+      UserGroups.ListUserAssignments(buyerId, { userID: customerId, pageSize: 100 }).catch(() => ({ Items: [] })),
+      Addresses.ListAssignments(buyerId, { userID: customerId, pageSize: 100 }).catch(() => ({ Items: [] })),
+    ]);
+
+    const groupIds = Array.from(
+      new Set((groupAssignmentsRes as any).Items?.map((a: any) => a.UserGroupID).filter(Boolean) ?? []),
+    ) as string[];
+
+    const addressIds = Array.from(
+      new Set((addressAssignmentsRes as any).Items?.map((a: any) => a.AddressID).filter(Boolean) ?? []),
+    ) as string[];
+
+    const [groups, addresses] = await Promise.all([
+      Promise.all(
+        groupIds.map(async (groupId) => {
+          try {
+            return await UserGroups.Get(buyerId, groupId);
+          } catch {
+            return { ID: groupId, Name: groupId };
+          }
+        }),
+      ),
+      Promise.all(
+        addressIds.map(async (addressId) => {
+          try {
+            return await Addresses.Get(buyerId, addressId);
+          } catch {
+            return { ID: addressId };
+          }
+        }),
+      ),
+    ]);
+
+    return {
+      success: true,
+      data: JSON.parse(
+        JSON.stringify({
+          customer,
+          groups,
+          addresses,
+        }),
+      ),
+    };
+  } catch (err: any) {
+    console.error("Get Customer Detail Error:", err);
+    return { success: false, error: err.message || "Failed to get customer detail" };
+  }
+}
+
+export async function createCustomerAddress(
+  customerId: string,
+  payload: {
+    firstName: string;
+    lastName: string;
+    mobile?: string;
+    mobileAreaCode?: string;
+    companyName?: string;
+    street1: string;
+    suburb?: string;
+    state?: string;
+    postcode?: string;
+    dpid?: string;
+    saveAs?: "Home" | "Business";
+    useDefaultBilling?: boolean;
+    useDefaultShipping?: boolean;
+  },
+) {
+  try {
+    const auth = await getOrderCloudToken();
+    if (!auth.success || !auth.token) throw new Error("Auth failed");
+
+    const { Addresses, Tokens } = await import("ordercloud-javascript-sdk");
+    Tokens.SetAccessToken(auth.token);
+
+    const buyerId = process.env.NEXT_PUBLIC_ORDERCLOUD_BUYER_ID || process.env.ORDERCLOUD_BUYER_ID;
+    if (!buyerId) throw new Error("Missing Buyer ID in environment variables");
+
+    const created = await Addresses.Create(buyerId, {
+      AddressName: payload.saveAs || "Home",
+      FirstName: payload.firstName,
+      LastName: payload.lastName,
+      CompanyName: payload.companyName || undefined,
+      Street1: payload.street1,
+      City: payload.suburb || undefined,
+      State: payload.state || undefined,
+      Zip: payload.postcode || undefined,
+      Country: "AU",
+      Phone: payload.mobile ? `${payload.mobileAreaCode || ""}${payload.mobile}` : undefined,
+      xp: {
+        DPID: payload.dpid || undefined,
+        SaveAddressAs: payload.saveAs || undefined,
+        MobileAreaCode: payload.mobileAreaCode || undefined,
+      },
+    } as any);
+
+    // Assign the created address to this user (and optionally mark as default shipping/billing).
+    await Addresses.SaveAssignment(buyerId, {
+      AddressID: created.ID,
+      UserID: customerId,
+      IsBilling: Boolean(payload.useDefaultBilling),
+      IsShipping: Boolean(payload.useDefaultShipping),
+    });
+
+    return { success: true, data: JSON.parse(JSON.stringify(created)) };
+  } catch (err: any) {
+    console.error("Create Customer Address Error:", err);
+    return { success: false, error: err.message || "Failed to create customer address" };
+  }
+}
+
+export async function updateCustomerAddress(
+  customerId: string,
+  addressId: string,
+  payload: {
+    firstName: string;
+    lastName: string;
+    mobile?: string;
+    mobileAreaCode?: string;
+    companyName?: string;
+    street1: string;
+    suburb?: string;
+    state?: string;
+    postcode?: string;
+    dpid?: string;
+    saveAs?: "Home" | "Business";
+    useDefaultBilling?: boolean;
+    useDefaultShipping?: boolean;
+  },
+) {
+  try {
+    const auth = await getOrderCloudToken();
+    if (!auth.success || !auth.token) throw new Error("Auth failed");
+
+    const { Addresses, Tokens } = await import("ordercloud-javascript-sdk");
+    Tokens.SetAccessToken(auth.token);
+
+    const buyerId = process.env.NEXT_PUBLIC_ORDERCLOUD_BUYER_ID || process.env.ORDERCLOUD_BUYER_ID;
+    if (!buyerId) throw new Error("Missing Buyer ID in environment variables");
+
+    const updated = await Addresses.Patch(buyerId, addressId, {
+      AddressName: payload.saveAs || undefined,
+      FirstName: payload.firstName,
+      LastName: payload.lastName,
+      CompanyName: payload.companyName || undefined,
+      Street1: payload.street1,
+      City: payload.suburb || undefined,
+      State: payload.state || undefined,
+      Zip: payload.postcode || undefined,
+      Phone: payload.mobile ? `${payload.mobileAreaCode || ""}${payload.mobile}` : undefined,
+      xp: {
+        // Keep DPID immutable in UI, but allow storing if provided by integration.
+        DPID: payload.dpid || undefined,
+        SaveAddressAs: payload.saveAs || undefined,
+        MobileAreaCode: payload.mobileAreaCode || undefined,
+      },
+    } as any);
+
+    await Addresses.SaveAssignment(buyerId, {
+      AddressID: addressId,
+      UserID: customerId,
+      IsBilling: Boolean(payload.useDefaultBilling),
+      IsShipping: Boolean(payload.useDefaultShipping),
+    });
+
+    return { success: true, data: JSON.parse(JSON.stringify(updated)) };
+  } catch (err: any) {
+    console.error("Update Customer Address Error:", err);
+    return { success: false, error: err.message || "Failed to update customer address" };
+  }
+}
+
+export async function deleteCustomerAddress(customerId: string, addressId: string) {
+  try {
+    const auth = await getOrderCloudToken();
+    if (!auth.success || !auth.token) throw new Error("Auth failed");
+
+    const { Addresses, Tokens } = await import("ordercloud-javascript-sdk");
+    Tokens.SetAccessToken(auth.token);
+
+    const buyerId = process.env.NEXT_PUBLIC_ORDERCLOUD_BUYER_ID || process.env.ORDERCLOUD_BUYER_ID;
+    if (!buyerId) throw new Error("Missing Buyer ID in environment variables");
+
+    // Best effort: remove assignment for this user first.
+    try {
+      await Addresses.DeleteAssignment(buyerId, addressId, { userID: customerId });
+    } catch {
+      // ignore
+    }
+
+    await Addresses.Delete(buyerId, addressId);
+
+    return { success: true };
+  } catch (err: any) {
+    console.error("Delete Customer Address Error:", err);
+    return { success: false, error: err.message || "Failed to delete customer address" };
+  }
+}
+
+export async function updateCustomer(
+  customerId: string,
+  payload: {
+    firstName: string;
+    lastName: string;
+    mobileNumber: string;
+    confirmedEmail: boolean;
+    active: boolean;
+  },
+) {
+  try {
+    const auth = await getOrderCloudToken();
+    if (!auth.success || !auth.token) throw new Error("Auth failed");
+
+    const { Users, Tokens } = await import("ordercloud-javascript-sdk");
+    Tokens.SetAccessToken(auth.token);
+
+    const buyerId = process.env.NEXT_PUBLIC_ORDERCLOUD_BUYER_ID || process.env.ORDERCLOUD_BUYER_ID;
+    if (!buyerId) throw new Error("Missing Buyer ID in environment variables");
+
+    const updated = await Users.Patch(buyerId, customerId, {
+      FirstName: payload.firstName,
+      LastName: payload.lastName,
+      Active: payload.active,
+      // Keep Phone in sync for display/search (best effort).
+      Phone: payload.mobileNumber,
+      xp: {
+        PersonalInformation: {
+          MobileNumber: payload.mobileNumber,
+          IsConfirmedEmail: payload.confirmedEmail,
+        },
+      },
+    } as any);
+
+    return { success: true, data: JSON.parse(JSON.stringify(updated)) };
+  } catch (err: any) {
+    console.error("Update Customer Error:", err);
+    return { success: false, error: err.message || "Failed to update customer" };
   }
 }
