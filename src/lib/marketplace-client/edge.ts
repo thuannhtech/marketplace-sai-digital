@@ -16,9 +16,9 @@ const edgeMediaItemUrlQuery = `
 `;
 
 const edgeListMediaChildrenQuery = `
-  query ListMediaUrls($path: String!, $language: String!) {
+  query ListMediaUrls($path: String!, $language: String!, $first: Int!) {
     item(path: $path, language: $language) {
-      children {
+      children(first: $first) {
         results {
           id
           name
@@ -114,11 +114,13 @@ function mapEdgeMediaChildRow(row: Record<string, unknown>): EdgeMediaItemResult
 export async function listMediaLibraryItemsFromEdge(params: {
   folderPath: string;
   language?: string;
+  first?: number;
 }): Promise<EdgeMediaItemResult[]> {
   const config = getExperienceEdgeGraphqlConfig();
   if (!config || !params.folderPath.trim()) return [];
 
   const language = params.language?.trim() || getEdgeDefaultLanguage();
+  const first = Math.max(1, params.first ?? 100);
 
   try {
     const response = await fetch(config.endpoint, {
@@ -126,7 +128,7 @@ export async function listMediaLibraryItemsFromEdge(params: {
       headers: buildExperienceEdgeGraphqlHeaders(config.apiKey),
       body: JSON.stringify({
         query: edgeListMediaChildrenQuery,
-        variables: { path: params.folderPath.trim(), language },
+        variables: { path: params.folderPath.trim(), language, first },
       }),
     });
 

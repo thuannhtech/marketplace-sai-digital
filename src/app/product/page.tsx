@@ -2,7 +2,7 @@
 
 import * as mdi from "@mdi/js";
 import Image from "next/image";
-import { ChangeEvent, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, ReactNode, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -17,12 +17,14 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Icon } from "@/lib/icon";
-import { createProductWithWorkato } from "@/src/lib/api/workato-product-api";
+import { createProduct, updateProduct } from "@/src/lib/api/products-api";
 
 import { CreateProductBody, CreateProductImage, ProductRow } from "@/src/lib/domain/product/product.types";
 import {
   fetchMarketplaceProducts,
+  getMediaItemById,
   listMediaLibraryItems,
+  publishProductToEdge,
   uploadImageToMediaLibrary,
 } from "@/src/lib/marketplace-client";
 import { useMarketplace } from "@/src/providers/MarketplaceProvider";
@@ -35,11 +37,7 @@ const STATUS_AWAITING_APPROVAL = "awaiting approval";
 const STATUS_OPTIONS = [STATUS_ALL, STATUS_APPROVE, STATUS_DRAFT, STATUS_AWAITING_APPROVAL] as const;
 const MEDIA_LIBRARY_FOLDER_ID = "{FE08FD99-630B-4A0D-94D7-8767562AA0FC}";
 /** Experience Edge `item(path: …)` for `ListMediaUrls` (public `url.url` on children). Override via env. */
-const MEDIA_LIBRARY_EDGE_FOLDER_PATH =
-  process.env.NEXT_PUBLIC_SITECORE_MEDIA_LIBRARY_EDGE_FOLDER_PATH?.trim() ||
-  "/sitecore/media library/Project/sai-sitecore/sai-sitecore";
-const MEDIA_LIBRARY_UPLOAD_PATH =
-  process.env.NEXT_PUBLIC_SITECORE_MEDIA_LIBRARY_UPLOAD_PATH ?? "";
+const MEDIA_LIBRARY_EDGE_FOLDER_PATH = "/sitecore/media library/Project/sai-sitecore/sai-sitecore";
 type AlertVariant = "default" | "destructive";
 
 const DEFAULT_CREATE_FORM: CreateProductBody = {
@@ -90,8 +88,14 @@ function formatSitecoreMultilistValue(itemIds: string[]): string {
 }
 
 function buildMediaUploadItemPath(folderPath: string, fileName: string): string {
+  const normalizedFileName = fileName
+    .trim()
+    .replace(/[\\/:?"<>|\[\]]+/g, "-")
+    .replace(/\s+/g, " ")
+    .replace(/-+/g, "-")
+    .replace(/^[.\- ]+|[.\- ]+$/g, "") || "uploaded-file";
   const normalizedFolder = folderPath.trim().replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
-  return normalizedFolder ? `${normalizedFolder}/${fileName}` : fileName;
+  return normalizedFolder ? `${normalizedFolder}/${normalizedFileName}` : normalizedFileName;
 }
 
 function BlokLoader({ label }: { label: string }) {
@@ -134,6 +138,27 @@ function ProductThumb({
   );
 }
 
+function PickerActionButton({
+  children,
+  onClick,
+  disabled,
+}: {
+  children: ReactNode;
+  onClick?: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="inline-flex h-11 items-center gap-2 rounded-xl border border-sidebar-border bg-white px-4 text-sm font-medium text-body-text shadow-[0_10px_25px_rgba(15,23,42,0.08)] transition hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      {children}
+    </button>
+  );
+}
+
 interface PendingImage {
   file: File;
   fileName: string;
@@ -148,6 +173,50 @@ interface MediaLibraryOption {
   path: string;
   previewUrl?: string;
 }
+
+interface PendingLocalPublishProduct {
+  id?: string;
+  modelName: string;
+}
+
+const SelectedMediaLibraryGrid = memo(function SelectedMediaLibraryGrid({
+  items,
+  isBusy,
+  onRemove,
+}: {
+  items: MediaLibraryOption[];
+  isBusy: boolean;
+  onRemove: (itemId: string) => void;
+}) {
+  if (items.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="space-y-3">
+      {items.map((item) => (
+        <div
+          key={item.itemId}
+          className="flex items-center gap-3 rounded-2xl border border-sidebar-border bg-white px-3 py-3 shadow-[0_8px_30px_rgba(15,23,42,0.05)]"
+        >
+          <div className="relative h-14 w-14 overflow-hidden rounded-xl bg-muted">
+            <div className="absolute left-1.5 top-1.5 z-10 rounded-md bg-primary px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-white">
+              Linked
+            </div>
+            <MediaLibraryPickThumb src={item.previewUrl} label={item.name} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-semibold text-body-text">{item.name}</p>
+            <p className="truncate text-xs text-subtle-text">{item.path}</p>
+          </div>
+          <Button type="button" variant="outline" size="sm" onClick={() => onRemove(item.itemId)} disabled={isBusy}>
+            <Icon path={mdi.mdiTrashCanOutline} className="h-4 w-4" />
+          </Button>
+        </div>
+      ))}
+    </div>
+  );
+});
 
 function MediaLibraryPickThumb({ src, label }: { src?: string; label: string }) {
   const [loadFailed, setLoadFailed] = useState(false);
@@ -186,31 +255,41 @@ const SelectedImagesGrid = memo(function SelectedImagesGrid({
   onRemove: (index: number) => void;
 }) {
   if (selectedImages.length === 0) {
-    return <p className="text-xs text-subtle-text">No image selected.</p>;
+    return null;
   }
 
   return (
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+    <div className="space-y-3">
       {selectedImages.map((image, index) => (
-        <div key={`${image.fileName}-${index}`} className="rounded-md border border-sidebar-border p-2">
-          <div className="relative h-24 w-full overflow-hidden rounded-md">
-            <ProductThumb
-              src={image.previewUrl}
-              alt={image.fileName}
-              className="h-full w-full object-cover"
-            />
+        <div
+          key={`${image.fileName}-${index}`}
+          className="flex items-center gap-3 rounded-2xl border border-sidebar-border bg-white px-3 py-3 shadow-[0_8px_30px_rgba(15,23,42,0.05)]"
+        >
+          <div className="relative h-14 w-14 overflow-hidden rounded-xl bg-muted">
+            <ProductThumb src={image.previewUrl} alt={image.fileName} className="h-full w-full object-cover" />
           </div>
-          <p className="mt-2 truncate text-xs text-subtle-text">{image.fileName}</p>
-          <Button
-            type="button"
-            variant="ghost"
-            size="xs"
-            className="mt-1"
-            onClick={() => onRemove(index)}
-            disabled={isProcessingImages || isCreating || isUploadingToMediaLibrary}
-          >
-            Remove
-          </Button>
+          <Input
+            value={image.fileName}
+            readOnly
+            className="h-10 flex-1 rounded-xl border-sidebar-border bg-white text-sm"
+          />
+          <div className="flex items-center gap-2">
+            <Button type="button" variant="outline" size="icon" disabled>
+              <Icon path={mdi.mdiArrowUpThin} className="h-4 w-4" />
+            </Button>
+            <Button type="button" variant="outline" size="icon" disabled>
+              <Icon path={mdi.mdiCloudUploadOutline} className="h-4 w-4" />
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              onClick={() => onRemove(index)}
+              disabled={isProcessingImages || isCreating || isUploadingToMediaLibrary}
+            >
+              <Icon path={mdi.mdiTrashCanOutline} className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
       ))}
     </div>
@@ -282,6 +361,7 @@ const ProductTable = memo(function ProductTable({
   totalPages,
   onPreviousPage,
   onNextPage,
+  onEditRow,
 }: {
   isFetching: boolean;
   paginatedRows: ProductRow[];
@@ -291,6 +371,7 @@ const ProductTable = memo(function ProductTable({
   totalPages: number;
   onPreviousPage: () => void;
   onNextPage: () => void;
+  onEditRow: (row: ProductRow) => void;
 }) {
   return (
     <Card className="border-sidebar-border">
@@ -303,8 +384,8 @@ const ProductTable = memo(function ProductTable({
                 <th className="px-4 py-3 font-semibold">Description</th>
                 <th className="px-4 py-3 font-semibold">Price</th>
                 <th className="px-4 py-3 font-semibold">Quantity</th>
-                <th className="px-4 py-3 font-semibold">Ordercloud ID</th>
                 <th className="px-4 py-3 font-semibold">Status</th>
+                <th className="px-4 py-3 font-semibold">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -324,14 +405,21 @@ const ProductTable = memo(function ProductTable({
                 paginatedRows.map((row) => (
                   <tr key={row.id} className="border-b border-sidebar-border/70">
                     <td className="px-4 py-3 font-medium">{row.modelName}</td>
-                    <td className="px-4 py-3">{row.description}</td>
+                    <td
+                      className="px-4 py-3"
+                      dangerouslySetInnerHTML={{ __html: row.description }}
+                    />
                     <td className="px-4 py-3">{formatPrice(row.price)}</td>
                     <td className="px-4 py-3">{row.quantity}</td>
-                    <td className="px-4 py-3">{row.ordercloud_id}</td>
                     <td className="px-4 py-3">
                       <Badge colorScheme={getStatusBadgeColor(row.status)}>
                         {getStatusLabel(row.status)}
                       </Badge>
+                    </td>
+                    <td className="px-4 py-3">
+                      <Button type="button" variant="outline" size="sm" onClick={() => onEditRow(row)}>
+                        Update
+                      </Button>
                     </td>
                   </tr>
                 ))
@@ -464,6 +552,19 @@ function fileToBase64(file: File): Promise<string> {
   });
 }
 
+function extractMutationProductId(payload: unknown): string | undefined {
+  if (!payload || typeof payload !== "object") return undefined;
+  const root = payload as Record<string, unknown>;
+  const data = root.data && typeof root.data === "object" ? (root.data as Record<string, unknown>) : root;
+
+  const candidates = [data.id, data.itemId, data.productId, root.id, root.itemId, root.productId];
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) return candidate;
+  }
+
+  return undefined;
+}
+
 export default function ProductPage() {
   const { client, isInitialized, isLoading } = useMarketplace();
   const [rows, setRows] = useState<ProductRow[]>([]);
@@ -476,17 +577,24 @@ export default function ProductPage() {
   const [isFetching, setIsFetching] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<ProductRow | null>(null);
   const [hasAutoLoaded, setHasAutoLoaded] = useState(false);
   const [createForm, setCreateForm] = useState<CreateProductBody>(DEFAULT_CREATE_FORM);
   const [selectedImages, setSelectedImages] = useState<PendingImage[]>([]);
   const [mediaLibraryOptions, setMediaLibraryOptions] = useState<MediaLibraryOption[]>([]);
   const [selectedMediaItemIds, setSelectedMediaItemIds] = useState<string[]>([]);
+  const [selectedMediaItems, setSelectedMediaItems] = useState<MediaLibraryOption[]>([]);
   const [isMediaLibraryLoading, setIsMediaLibraryLoading] = useState(false);
   const [isUploadingToMediaLibrary, setIsUploadingToMediaLibrary] = useState(false);
   const [isProcessingImages, setIsProcessingImages] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [messageVariant, setMessageVariant] = useState<AlertVariant>("default");
+  const [pendingLocalPublishProduct, setPendingLocalPublishProduct] = useState<PendingLocalPublishProduct | null>(null);
+  const [publishLanguage, setPublishLanguage] = useState("en");
+  const [isLocalPublishConfirmOpen, setIsLocalPublishConfirmOpen] = useState(false);
+  const [isSubmittingLocalPublish, setIsSubmittingLocalPublish] = useState(false);
   const createModalContentRef = useRef<HTMLDivElement>(null);
+  const productImagesInputRef = useRef<HTMLInputElement>(null);
   const isCreateModalBusy =
     isCreating || isProcessingImages || isUploadingToMediaLibrary || isMediaLibraryLoading;
 
@@ -500,12 +608,61 @@ export default function ProductPage() {
     setMessageVariant("default");
   }
 
+  function closeLocalPublishConfirm() {
+    setIsLocalPublishConfirmOpen(false);
+  }
+
+  function resetProductModalState() {
+    setEditingProduct(null);
+    setPendingLocalPublishProduct(null);
+    setIsLocalPublishConfirmOpen(false);
+    setCreateForm(DEFAULT_CREATE_FORM);
+    setSelectedMediaItemIds([]);
+    setSelectedMediaItems([]);
+    clearSelectedImages();
+  }
+
   function handleCreateModalOpenChange(open: boolean) {
     clearMessage();
     if (open) {
       setMediaLibraryOptions([]);
+    } else {
+      resetProductModalState();
     }
     setIsCreateModalOpen(open);
+  }
+
+  function handleOpenCreateModal() {
+    setEditingProduct(null);
+    setPendingLocalPublishProduct(null);
+    setCreateForm(DEFAULT_CREATE_FORM);
+    setSelectedMediaItemIds([]);
+    setSelectedMediaItems([]);
+    clearSelectedImages();
+    setMediaLibraryOptions([]);
+    setIsCreateModalOpen(true);
+  }
+
+  async function handleOpenUpdateModal(product: ProductRow) {
+    clearMessage();
+    setEditingProduct(product);
+    setPendingLocalPublishProduct({
+      id: product.id,
+      modelName: product.modelName,
+    });
+    setCreateForm({
+      model_name: product.modelName,
+      desc: product.description,
+      category: "",
+      catalog: "",
+      price: product.price,
+      quantity: product.quantity,
+    });
+    setSelectedMediaItemIds(product.mediaItemIds ?? []);
+    setSelectedMediaItems([]);
+    clearSelectedImages();
+    setMediaLibraryOptions([]);
+    setIsCreateModalOpen(true);
   }
 
   const clearSelectedImages = useCallback(function clearSelectedImages() {
@@ -547,14 +704,23 @@ export default function ProductPage() {
     });
   }, []);
 
-  async function handleLoadMediaLibrary() {
+  const removeSelectedMediaItem = useCallback(function removeSelectedMediaItem(itemId: string) {
+    setSelectedMediaItemIds((prev) => prev.filter((id) => id !== itemId));
+    setSelectedMediaItems((prev) => prev.filter((item) => item.itemId !== itemId));
+  }, []);
+
+  async function handleLoadMediaLibrary({ quiet = false }: { quiet?: boolean } = {}) {
     if (!client || !isInitialized) {
-      showMessage("Marketplace client is not ready to load media library.", "destructive");
-      return;
+      if (!quiet) {
+        showMessage("Marketplace client is not ready to load media library.", "destructive");
+      }
+      return [];
     }
     if (!MEDIA_LIBRARY_FOLDER_ID) {
-      showMessage("Missing NEXT_PUBLIC_SITECORE_MEDIA_LIBRARY_FOLDER_ID.", "destructive");
-      return;
+      if (!quiet) {
+        showMessage("Missing NEXT_PUBLIC_SITECORE_MEDIA_LIBRARY_FOLDER_ID.", "destructive");
+      }
+      return [];
     }
 
     setIsMediaLibraryLoading(true);
@@ -566,47 +732,17 @@ export default function ProductPage() {
         MEDIA_LIBRARY_EDGE_FOLDER_PATH,
       );
       setMediaLibraryOptions(items);
-      showMessage(`Loaded ${items.length} images from media library.`);
+      if (!quiet) {
+        showMessage(`Loaded ${items.length} images from media library.`);
+      }
+      return items;
     } catch (error) {
-      showMessage(getErrorMessage(error, "Unable to load media library images."), "destructive");
+      if (!quiet) {
+        showMessage(getErrorMessage(error, "Unable to load media library images."), "destructive");
+      }
+      return [];
     } finally {
       setIsMediaLibraryLoading(false);
-    }
-  }
-
-  async function handleUploadSelectedImagesToMediaLibrary() {
-    if (!client || !isInitialized) {
-      showMessage("Marketplace client is not ready to upload media.", "destructive");
-      return;
-    }
-    if (selectedImages.length === 0) {
-      showMessage("Choose at least one image before uploading to media library.", "destructive");
-      return;
-    }
-
-    setIsUploadingToMediaLibrary(true);
-    try {
-      const uploaded = await Promise.all(
-        selectedImages.map(async (image) => {
-          const uploadPath = buildMediaUploadItemPath(MEDIA_LIBRARY_UPLOAD_PATH, image.fileName);
-          return await uploadImageToMediaLibrary(client, {
-            itemPath: uploadPath,
-            file: image.file,
-            fileName: image.fileName,
-          });
-        })
-      );
-
-      const uploadedIds = uploaded.map((item) => item.id).filter((id): id is string => Boolean(id));
-      if (uploadedIds.length > 0) {
-        setSelectedMediaItemIds((prev) => Array.from(new Set([...prev, ...uploadedIds])));
-      }
-
-      showMessage(`Uploaded ${uploaded.length} image(s) to media library.`);
-    } catch (error) {
-      showMessage(getErrorMessage(error, "Unable to upload images to media library."), "destructive");
-    } finally {
-      setIsUploadingToMediaLibrary(false);
     }
   }
 
@@ -615,6 +751,49 @@ export default function ProductPage() {
       prev.includes(itemId) ? prev.filter((id) => id !== itemId) : [...prev, itemId]
     );
   }, []);
+
+  const syncSelectedMediaItems = useCallback(async function syncSelectedMediaItems(itemIds: string[]) {
+    if (itemIds.length === 0) {
+      setSelectedMediaItems([]);
+      return;
+    }
+
+    const fromLoadedOptions = new Map(
+      mediaLibraryOptions.map((item) => [item.itemId.replace(/[{}]/g, "").toUpperCase(), item] as const),
+    );
+
+    const resolved = new Map<string, MediaLibraryOption>();
+    for (const itemId of itemIds) {
+      const normalizedItemId = itemId.replace(/[{}]/g, "").toUpperCase();
+      const existing = fromLoadedOptions.get(normalizedItemId);
+      if (existing) {
+        resolved.set(normalizedItemId, existing);
+      }
+    }
+
+    if (client && isInitialized) {
+      const missingIds = itemIds.filter((itemId) => !resolved.has(itemId.replace(/[{}]/g, "").toUpperCase()));
+      if (missingIds.length > 0) {
+        const fetched = await Promise.all(
+          missingIds.map(async (itemId) => await getMediaItemById(client, itemId)),
+        );
+
+        for (const item of fetched) {
+          if (item) {
+            resolved.set(item.itemId.replace(/[{}]/g, "").toUpperCase(), item);
+          }
+        }
+      }
+    }
+
+    const ordered = itemIds
+      .map((itemId) => resolved.get(itemId.replace(/[{}]/g, "").toUpperCase()))
+      .filter((item): item is MediaLibraryOption => Boolean(item));
+
+    setSelectedMediaItems(ordered);
+  }, [client, isInitialized, mediaLibraryOptions]);
+
+  const hasLoadedMediaLibraryOptions = mediaLibraryOptions.length > 0;
 
   async function handleLoadProducts({ quiet = false }: { quiet?: boolean } = {}) {
     if (!client) {
@@ -645,33 +824,82 @@ export default function ProductPage() {
       return;
     }
 
-    const mediaItemIdsValue = formatSitecoreMultilistValue(selectedMediaItemIds);
-    const payload: CreateProductBody = {
-      ...createForm,
-      model_name: createForm.model_name.trim(),
-      category: createForm.category.trim(),
-      catalog: createForm.catalog.trim(),
-      desc: createForm.desc.trim() || "<p>No description</p>",
-      images: selectedImages.map<CreateProductImage>((image) => ({
-        fileName: image.fileName,
-        mimeType: image.mimeType,
-        contentBase64: image.contentBase64,
-      })),
-      MediaItemIds: mediaItemIdsValue || undefined,
-    };
-
     setIsCreating(true);
     clearMessage();
     try {
-      await createProductWithWorkato(payload);
+      let uploadedMediaItemIds: string[] = [];
+
+      if (selectedImages.length > 0) {
+        if (!client || !isInitialized) {
+          throw new Error("Marketplace client is not ready to upload media.");
+        }
+
+        setIsUploadingToMediaLibrary(true);
+        const uploaded = await Promise.all(
+          selectedImages.map(async (image) => {
+            return await uploadImageToMediaLibrary(client, {
+              file: image.file,
+              fileName: image.fileName,
+            });
+          }),
+        );
+        uploadedMediaItemIds = uploaded
+          .map((item) => item.id)
+          .filter((id): id is string => Boolean(id));
+        setSelectedMediaItemIds((prev) => Array.from(new Set([...prev, ...uploadedMediaItemIds])));
+        await handleLoadMediaLibrary({ quiet: true });
+      }
+
+      const mergedMediaItemIds = Array.from(new Set([...selectedMediaItemIds, ...uploadedMediaItemIds]));
+      const mediaItemIdsValue = formatSitecoreMultilistValue(mergedMediaItemIds);
+      const normalizedModelName = createForm.model_name.trim();
+      const payload: CreateProductBody = {
+        ...createForm,
+        model_name: normalizedModelName,
+        price_name: `${normalizedModelName.replace(/\s+/g, "_")}_price`,
+        category: createForm.category.trim(),
+        catalog: createForm.catalog.trim(),
+        desc: createForm.desc.trim() || "<p>No description</p>",
+        images: selectedImages.map<CreateProductImage>((image) => ({
+          fileName: image.fileName,
+          mimeType: image.mimeType,
+          contentBase64: image.contentBase64,
+        })),
+        MediaItemIds: mediaItemIdsValue || undefined,
+      };
+
+      let mutationResponse;
+      if (editingProduct) {
+        mutationResponse = await updateProduct(editingProduct.id, {
+          ...payload,
+          ordercloud_id: editingProduct.ordercloud_id,
+        });
+      } else {
+        mutationResponse = await createProduct(payload);
+      }
       setCreateForm(DEFAULT_CREATE_FORM);
       clearSelectedImages();
       setSelectedMediaItemIds([]);
+      setSelectedMediaItems([]);
       handleCreateModalOpenChange(false);
+      if (editingProduct) {
+        setPendingLocalPublishProduct({
+          id: editingProduct.id ?? extractMutationProductId(mutationResponse),
+          modelName: normalizedModelName,
+        });
+        showMessage("Updated successfully. Ready for local publish.");
+      } else {
+        setPendingLocalPublishProduct(null);
+        showMessage("Created successfully.");
+      }
       await handleLoadProducts({ quiet: true });
     } catch (createError) {
-      showMessage(getErrorMessage(createError, "Create product API failed."), "destructive");
+      showMessage(
+        getErrorMessage(createError, editingProduct ? "Update product API failed." : "Create product API failed."),
+        "destructive",
+      );
     } finally {
+      setIsUploadingToMediaLibrary(false);
       setIsCreating(false);
     }
   }
@@ -735,6 +963,10 @@ export default function ProductPage() {
     });
   }, [isCreateModalOpen, message]);
 
+  useEffect(() => {
+    void syncSelectedMediaItems(selectedMediaItemIds);
+  }, [selectedMediaItemIds, syncSelectedMediaItems]);
+
   return (
     <div className="space-y-6">
       <section className="space-y-2">
@@ -772,7 +1004,7 @@ export default function ProductPage() {
               )}
             </Button>
             <div className="md:ml-auto">
-              <Button onClick={() => handleCreateModalOpenChange(true)}>
+              <Button onClick={handleOpenCreateModal}>
                 <Icon path={mdi.mdiPlus} className="mr-2 h-4 w-4" />
                 Create New Product
               </Button>
@@ -849,8 +1081,10 @@ export default function ProductPage() {
           className="w-full sm:max-w-2xl lg:max-w-4xl overflow-y-auto"
         >
           <SheetHeader>
-            <SheetTitle>Add New Model</SheetTitle>
-            <SheetDescription>Create a new product model</SheetDescription>
+            <SheetTitle>{editingProduct ? "Update Model" : "Add New Model"}</SheetTitle>
+            <SheetDescription>
+              {editingProduct ? `Update ${editingProduct.modelName}` : "Create a new product model"}
+            </SheetDescription>
           </SheetHeader>
           <div className="space-y-4 px-4">
             {isCreateModalBusy && (
@@ -877,6 +1111,27 @@ export default function ProductPage() {
                 <AlertDescription>{message}</AlertDescription>
               </Alert>
             )}
+
+            {editingProduct &&
+            pendingLocalPublishProduct &&
+            normalizeStatus(editingProduct.status) === STATUS_DRAFT ? (
+              <div className="rounded-2xl border border-sidebar-border bg-white p-4 shadow-[0_10px_25px_rgba(15,23,42,0.06)]">
+                <div className="flex flex-col gap-3 md:flex-row md:items-center">
+                  <select
+                    className="border-input focus:border-primary focus:ring-primary h-10 w-full rounded-md border bg-body-bg px-3 text-sm focus:ring-1 focus:outline-none md:max-w-md"
+                    value={publishLanguage}
+                    onChange={(event) => setPublishLanguage(event.target.value)}
+                  >
+                    <option value="en">English (region) : English (region)</option>
+                  </select>
+                  <div className="md:ml-auto">
+                    <Button type="button" onClick={() => setIsLocalPublishConfirmOpen(true)}>
+                      Submit for Edge Publish
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ) : null}
 
             <div className="space-y-1">
               <label className="text-sm font-medium text-body-text" htmlFor="model-name">
@@ -935,16 +1190,42 @@ export default function ProductPage() {
 
             <div className="space-y-2">
               <label className="text-sm font-medium text-body-text" htmlFor="product-images">
-                Product images (multiple)
+                Basic Model Image
               </label>
-              <Input
+              <input
+                ref={productImagesInputRef}
                 id="product-images"
                 type="file"
                 accept="image/*"
                 multiple
                 onChange={handleImageSelect}
                 disabled={isProcessingImages || isCreating}
+                className="hidden"
               />
+              <div className="rounded-2xl border border-sidebar-border bg-[#f7f5f2] p-4">
+                <div className="flex flex-wrap gap-3">
+                  <PickerActionButton
+                    onClick={() => void handleLoadMediaLibrary()}
+                    disabled={
+                      isMediaLibraryLoading ||
+                      isUploadingToMediaLibrary ||
+                      isProcessingImages ||
+                      isCreating ||
+                      !isInitialized
+                    }
+                  >
+                    <Icon path={mdi.mdiImageMultipleOutline} className="h-4 w-4" />
+                    {isMediaLibraryLoading ? "Loading media..." : "Sitecore Media Library"}
+                  </PickerActionButton>
+                  <PickerActionButton
+                    onClick={() => productImagesInputRef.current?.click()}
+                    disabled={isProcessingImages || isCreating}
+                  >
+                    <Icon path={mdi.mdiTrayArrowUp} className="h-4 w-4" />
+                    Click to upload images
+                  </PickerActionButton>
+                </div>
+              </div>
               {isProcessingImages ? <BlokLoader label="Preparing selected images..." /> : null}
               <SelectedImagesGrid
                 selectedImages={selectedImages}
@@ -953,57 +1234,42 @@ export default function ProductPage() {
                 isUploadingToMediaLibrary={isUploadingToMediaLibrary}
                 onRemove={removeSelectedImage}
               />
-
-              <div className="flex flex-wrap gap-2 pt-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={handleUploadSelectedImagesToMediaLibrary}
-                  disabled={
-                    isUploadingToMediaLibrary ||
-                    isMediaLibraryLoading ||
-                    isProcessingImages ||
-                    isCreating ||
-                    !isInitialized
-                  }
-                >
-                  {isUploadingToMediaLibrary ? (
-                    <BlokLoader label="Uploading..." />
-                  ) : (
-                    "Upload selected to Media Library"
-                  )}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={handleLoadMediaLibrary}
-                  disabled={
-                    isMediaLibraryLoading ||
-                    isUploadingToMediaLibrary ||
-                    isProcessingImages ||
-                    isCreating ||
-                    !isInitialized
-                  }
-                >
-                  {isMediaLibraryLoading ? (
-                    <BlokLoader label="Loading..." />
-                  ) : (
-                    "Load Media Library Images"
-                  )}
-                </Button>
-              </div>
+              <p className="text-xs text-subtle-text">
+                Selected images are uploaded to Sitecore Media Library automatically when you click{" "}
+                {editingProduct ? "Save Changes." : "Create Model."}
+              </p>
             </div>
 
             <div className="space-y-2">
               <p className="text-sm font-medium text-body-text">
-                Choose images from Media Library ({selectedMediaItemIds.length} selected)
+                Selected media library images ({selectedMediaItemIds.length})
               </p>
-              <MediaLibraryGrid
-                mediaLibraryOptions={mediaLibraryOptions}
-                selectedMediaItemIds={selectedMediaItemIds}
-                isCreateModalBusy={isCreateModalBusy}
-                onToggle={toggleSelectedMediaItem}
+              {selectedMediaItems.length > 0 ? (
+                <p className="text-xs text-subtle-text">
+                  {selectedMediaItems.map((item) => item.name).join(", ")}
+                </p>
+              ) : null}
+              <SelectedMediaLibraryGrid
+                items={selectedMediaItems}
+                isBusy={isCreateModalBusy}
+                onRemove={removeSelectedMediaItem}
               />
+            </div>
+
+            <div className="space-y-2">
+              {hasLoadedMediaLibraryOptions ? (
+                <>
+                  <p className="text-sm font-medium text-body-text">
+                    Choose images from Media Library ({selectedMediaItemIds.length} selected)
+                  </p>
+                  <MediaLibraryGrid
+                    mediaLibraryOptions={mediaLibraryOptions}
+                    selectedMediaItemIds={selectedMediaItemIds}
+                    isCreateModalBusy={isCreateModalBusy}
+                    onToggle={toggleSelectedMediaItem}
+                  />
+                </>
+              ) : null}
             </div>
           </div>
           <SheetFooter>
@@ -1011,8 +1277,7 @@ export default function ProductPage() {
               variant="outline"
               className="border-sidebar-border"
               onClick={() => {
-                clearSelectedImages();
-                setSelectedMediaItemIds([]);
+                resetProductModalState();
                 handleCreateModalOpenChange(false);
               }}
               disabled={isCreateModalBusy}
@@ -1025,11 +1290,75 @@ export default function ProductPage() {
               ) : (
                 <>
                   <Icon path={mdi.mdiPlus} className="mr-2 h-4 w-4" />
-                  Create Model
+                  {editingProduct ? "Save Changes" : "Create Model"}
                 </>
               )}
             </Button>
           </SheetFooter>
+
+          {isLocalPublishConfirmOpen && pendingLocalPublishProduct ? (
+            <div className="absolute inset-0 z-[60] flex items-start justify-center bg-black/35 px-4 py-16">
+              <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-[0_20px_60px_rgba(15,23,42,0.25)]">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h2 className="text-xl font-semibold text-body-text">Web Database Publish Decision</h2>
+                    <p className="mt-1 text-sm text-subtle-text">
+                      Publish <span className="font-medium text-body-text">{pendingLocalPublishProduct.modelName}</span> to Web database?
+                    </p>
+                  </div>
+                  <Button type="button" variant="ghost" size="icon-sm" onClick={closeLocalPublishConfirm}>
+                    <Icon path={mdi.mdiClose} className="h-4 w-4" />
+                  </Button>
+                </div>
+
+                <div className="mt-5 rounded-xl border border-sidebar-border bg-[#f7f5f2] px-4 py-3 text-sm text-subtle-text">
+                  Language: <span className="font-medium text-body-text">{publishLanguage === "en" ? "English (region)" : publishLanguage}</span>
+                </div>
+
+                <div className="mt-6 flex items-center justify-end gap-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={closeLocalPublishConfirm}
+                    disabled={isSubmittingLocalPublish}
+                  >
+                    Reject
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={async () => {
+                      if (!pendingLocalPublishProduct.id) {
+                        showMessage("Missing product item ID for edge publish.", "destructive");
+                        return;
+                      }
+
+                      setIsSubmittingLocalPublish(true);
+                      try {
+                        if (!client || !isInitialized) {
+                          throw new Error("Marketplace client is not ready for web database publish.");
+                        }
+
+                        await publishProductToEdge(client, {
+                          itemId: pendingLocalPublishProduct.id,
+                          language: publishLanguage,
+                        });
+                        closeLocalPublishConfirm();
+                        setPendingLocalPublishProduct(null);
+                        showMessage("Submitted for web database publish.");
+                      } catch (error) {
+                        showMessage(getErrorMessage(error, "Unable to submit for web database publish."), "destructive");
+                      } finally {
+                        setIsSubmittingLocalPublish(false);
+                      }
+                    }}
+                    disabled={isSubmittingLocalPublish}
+                  >
+                    {isSubmittingLocalPublish ? <BlokLoader label="Publishing..." /> : "Approve"}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ) : null}
         </SheetContent>
       </Sheet>
 
@@ -1042,6 +1371,7 @@ export default function ProductPage() {
         totalPages={totalPages}
         onPreviousPage={handlePreviousPage}
         onNextPage={handleNextPage}
+        onEditRow={handleOpenUpdateModal}
       />
     </div>
   );

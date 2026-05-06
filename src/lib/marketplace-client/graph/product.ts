@@ -31,11 +31,39 @@ const sitecoreProductsQuery = `
           ordercloud_id: field(name: "OrdercloudID") { value }
           quantity: field(name: "Quantity") { value }
           status: field(name: "Status") { value }
+          media_item_ids: field(name: "Images") { value }
         }
       }
     }
   }
 `;
+
+const publishProductToEdgeMutation = `
+  mutation PublishProductToEdge($itemId: ID!, $language: String!) {
+    publishItem(input: {
+      sourceDatabase: "master",
+      targetDatabases: ["experienceedge"],
+      rootItemIds: [$itemId],
+      publishSubItems: false,
+      publishRelatedItems: false,
+      publishItemMode: SMART,
+      languages: [$language]
+    }) {
+      operationId
+    }
+  }
+`;
+
+function parseMediaItemIds(value: unknown): string[] {
+  if (typeof value !== "string" || !value.trim()) {
+    return [];
+  }
+
+  return value
+    .split("|")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+}
 
 function normalizeProduct(value: Record<string, unknown>, index: number): ProductRow {
   return {
@@ -46,6 +74,7 @@ function normalizeProduct(value: Record<string, unknown>, index: number): Produc
     price: Number(value.price ?? 0),
     quantity: Number(value.quantity ?? 0),
     status: String(value.status ?? "unknown"),
+    mediaItemIds: parseMediaItemIds(value.media_item_ids),
   };
 }
 
@@ -77,6 +106,7 @@ function mapSitecoreItems(items: unknown[]): ProductRow[] {
       const priceField = item.price as Record<string, unknown> | undefined;
       const quantityField = item.quantity as Record<string, unknown> | undefined;
       const statusField = item.status as Record<string, unknown> | undefined;
+      const mediaItemIdsField = item.media_item_ids as Record<string, unknown> | undefined;
 
       return {
         id: String(item.id ?? `row-${index}`),
@@ -86,8 +116,61 @@ function mapSitecoreItems(items: unknown[]): ProductRow[] {
         price: Number(priceField?.value ?? 0),
         quantity: Number(quantityField?.value ?? 0),
         status: String(statusField?.value ?? "Active"),
+        mediaItemIds: parseMediaItemIds(mediaItemIdsField?.value),
       };
     });
+}
+
+async function executeAuthoringGraphql(
+  client: ClientSDK,
+  body: Record<string, unknown>,
+): Promise<unknown> {
+  const queryClient = asMarketplaceSdkClient(client);
+  const sitecoreContextId = await resolveSitecoreContextId(queryClient);
+
+  if (!sitecoreContextId) {
+    throw new Error("Missing sitecoreContextId. Unable to call authoring GraphQL.");
+  }
+
+  const payload = {
+    params: {
+      query: { sitecoreContextId },
+      body,
+    },
+  };
+
+  const initialResponse = queryClient.mutate
+    ? await queryClient.mutate("xmc.authoring.graphql", payload)
+    : await queryClient.query("xmc.authoring.graphql", payload);
+  const queryState =
+    initialResponse && typeof initialResponse === "object"
+      ? (initialResponse as Record<string, unknown>)
+      : undefined;
+  const shouldRefetch = typeof queryState?.refetch === "function" && queryState.data === undefined;
+
+  return shouldRefetch ? await (queryState.refetch as () => Promise<unknown>)() : initialResponse;
+}
+
+function extractPublishOperationId(response: unknown): string | undefined {
+  if (!response || typeof response !== "object") return undefined;
+
+  const root = response as Record<string, unknown>;
+  const data =
+    root.data && typeof root.data === "object"
+      ? (root.data as Record<string, unknown>)
+      : undefined;
+  const nestedData =
+    data?.data && typeof data.data === "object"
+      ? (data.data as Record<string, unknown>)
+      : undefined;
+  const source = nestedData ?? data;
+  const publishItem =
+    source?.publishItem && typeof source.publishItem === "object"
+      ? (source.publishItem as Record<string, unknown>)
+      : undefined;
+  const operationId = publishItem?.operationId;
+
+  return typeof operationId === "string" && operationId.length > 0 ? operationId : undefined;
 }
 
 export async function fetchMarketplaceProducts(client: ClientSDK): Promise<ProductRow[]> {
@@ -170,4 +253,29 @@ export async function fetchMarketplaceProducts(client: ClientSDK): Promise<Produ
     console.error("[product-query] GraphQL query failed", error);
     throw error;
   }
+}
+
+export async function publishProductToEdge(
+  client: ClientSDK,
+  params: { itemId: string; language?: string },
+): Promise<{ operationId: string }> {
+  const itemId = params.itemId.trim();
+  if (!itemId) {
+    throw new Error("Missing itemId for local publish.");
+  }
+
+  const response = await executeAuthoringGraphql(client, {
+    query: publishProductToEdgeMutation,
+    variables: {
+      itemId,
+      language: params.language?.trim() || "en",
+    },
+  });
+  const operationId = extractPublishOperationId(response);
+
+  if (!operationId) {
+    throw new Error("Edge publish did not return an operationId.");
+  }
+
+  return { operationId };
 }

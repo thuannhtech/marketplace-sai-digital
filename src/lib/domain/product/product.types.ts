@@ -6,6 +6,7 @@ export interface ProductRow {
   price: number;
   quantity: number;
   status: string;
+  mediaItemIds?: string[];
 }
 
 export interface CreateProductImage {
@@ -16,6 +17,7 @@ export interface CreateProductImage {
 
 export interface CreateProductBody {
   model_name: string;
+  price_name?: string;
   desc: string;
   category: string;
   catalog: string;
