@@ -1,6 +1,6 @@
 export { asMarketplaceSdkClient } from "./client";
 export { resolveSitecoreContextId } from "./context";
-export { fetchMarketplaceProducts } from "./graph/product";
+export { fetchMarketplaceProducts, publishProductToEdge } from "./graph/product";
 export {
   getMediaItemById,
   listMediaLibraryItems,

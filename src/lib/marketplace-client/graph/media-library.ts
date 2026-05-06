@@ -16,6 +16,22 @@ const requestUploadUrlMutation = `
   }
 `;
 
+const publishMediaItemMutation = `
+  mutation PublishMediaItem($itemId: ID!) {
+    publishItem(input: {
+      sourceDatabase: "master",
+      targetDatabases: ["experienceedge"],
+      rootItemIds: [$itemId],
+      publishSubItems: false,
+      publishRelatedItems: false,
+      publishItemMode: SMART,
+      languages: ["en"]
+    }) {
+      operationId
+    }
+  }
+`;
+
 const getMediaItemQuery = `
   query GetMediaItem($itemId: String!) {
     item(where: { database: "master", itemId: $itemId }) {
@@ -46,6 +62,7 @@ export interface UploadedMediaResult {
   id?: string;
   name?: string;
   fullPath?: string;
+  publishOperationId?: string;
   raw: unknown;
 }
 
@@ -108,6 +125,50 @@ function extractPresignedUploadUrl(response: unknown): string | undefined {
   return typeof url === "string" && url.length > 0 ? url : undefined;
 }
 
+function extractUploadedMediaField(response: unknown, fieldName: string): string | undefined {
+  if (!response || typeof response !== "object") return undefined;
+
+  const root = response as Record<string, unknown>;
+  const candidates: Array<Record<string, unknown> | undefined> = [
+    root,
+    root.data && typeof root.data === "object" ? (root.data as Record<string, unknown>) : undefined,
+    root.data && typeof root.data === "object"
+      ? (((root.data as Record<string, unknown>).data as Record<string, unknown> | undefined) ?? undefined)
+      : undefined,
+  ];
+
+  for (const candidate of candidates) {
+    const value = candidate?.[fieldName];
+    if (typeof value === "string" && value.length > 0) {
+      return value;
+    }
+  }
+
+  return undefined;
+}
+
+function extractPublishOperationId(response: unknown): string | undefined {
+  if (!response || typeof response !== "object") return undefined;
+
+  const root = response as Record<string, unknown>;
+  const data =
+    root.data && typeof root.data === "object"
+      ? (root.data as Record<string, unknown>)
+      : undefined;
+  const nestedData =
+    data?.data && typeof data.data === "object"
+      ? (data.data as Record<string, unknown>)
+      : undefined;
+  const source = nestedData ?? data;
+  const publishItem =
+    source?.publishItem && typeof source.publishItem === "object"
+      ? (source.publishItem as Record<string, unknown>)
+      : undefined;
+  const operationId = publishItem?.operationId;
+
+  return typeof operationId === "string" && operationId.length > 0 ? operationId : undefined;
+}
+
 function getMediaUploadHeaders(): HeadersInit | undefined {
   const token = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6InpnbnhyQk9IaXJ0WXp4dnl1WVhNZyJ9.eyJodHRwczovL2F1dGguc2l0ZWNvcmVjbG91ZC5pby9jbGFpbXMvY2xpZW50X25hbWUiOiJxdWFuZyB0ZXN0IiwiaHR0cHM6Ly9hdXRoLnNpdGVjb3JlY2xvdWQuaW8vY2xhaW1zL3RlbmFudF9pZCI6IjMwZGZiYTQ5LThjY2QtNDY3OS05OGI4LTA4ZGU2YjAzY2UxNyIsImh0dHBzOi8vYXV0aC5zaXRlY29yZWNsb3VkLmlvL2NsYWltcy90ZW5hbnRfbmFtZSI6InNhaWRpZ2l0YWxsNzcyMC1zYWlzaXRlY29yZWZmNTEtZGV2c2l0ZWNvcmUzZTBjIiwic2Nfc3lzX2lkIjoiNTkwNzYzN2MtY2RkZi00OGU5LWFjZWYtYmQwNmYxYTZiYWI4IiwiaHR0cHM6Ly9hdXRoLnNpdGVjb3JlY2xvdWQuaW8vY2xhaW1zL3RlbmFudC9jZHBfY2xpZW50X2tleSI6ImE0OWI2ZTU0YjE0NmNlZWIwNjBkOWU0ZGY0MWQzYmYwIiwiaHR0cHM6Ly9hdXRoLnNpdGVjb3JlY2xvdWQuaW8vY2xhaW1zL3RlbmFudC9BSUVtYmVkZGVkVGVuYW50SUQiOiI3NGU0OWMzMy1iMzJhLTRjNTgtNTIzZi0wOGRlNTljMTZjMjYiLCJodHRwczovL2F1dGguc2l0ZWNvcmVjbG91ZC5pby9jbGFpbXMvdGVuYW50L0NPRW1iZWRkZWRUZW5hbnRJRCI6IjI5MDM1ZmRjLTNjNDYtNGIyNi0zYjYzLTA4ZGU1OWM1NDY5YSIsImh0dHBzOi8vYXV0aC5zaXRlY29yZWNsb3VkLmlvL2NsYWltcy90ZW5hbnQvTU1TRW1iZWRkZWRUZW5hbnRJRCI6ImI1NjMxNmJiLWMyYmUtNGFmYS01MjQwLTA4ZGU1OWMxNmMyNiIsImh0dHBzOi8vYXV0aC5zaXRlY29yZWNsb3VkLmlvL2NsYWltcy9vcmdfaWQiOiJvcmdfT0NtT2VGTHY5ODZHellFaSIsImh0dHBzOi8vYXV0aC5zaXRlY29yZWNsb3VkLmlvL2NsYWltcy9vcmdfbmFtZSI6InNhaS1kaWdpdGFsLWxpbWl0ZWQiLCJodHRwczovL2F1dGguc2l0ZWNvcmVjbG91ZC5pby9jbGFpbXMvb3JnX2Rpc3BsYXlfbmFtZSI6IlNBSSBEaWdpdGFsIExpbWl0ZWQiLCJodHRwczovL2F1dGguc2l0ZWNvcmVjbG91ZC5pby9jbGFpbXMvb3JnX2FjY291bnRfaWQiOiIwMDExTjAwMDAxdHZlOWtRQUEiLCJodHRwczovL2F1dGguc2l0ZWNvcmVjbG91ZC5pby9jbGFpbXMvb3JnX3R5cGUiOiJwYXJ0bmVyIiwic2Nfb3JnX3JlZ2lvbiI6ImpwZSIsImlzcyI6Imh0dHBzOi8vYXV0aC5zaXRlY29yZWNsb3VkLmlvLyIsInN1YiI6IkRhQ1l2VHhKQUlDdzQ3akdhR3NIZ0FOM1daZDU0M0dGQGNsaWVudHMiLCJhdWQiOiJodHRwczovL2FwaS5zaXRlY29yZWNsb3VkLmlvIiwiaWF0IjoxNzc3OTQ4NTU2LCJleHAiOjE3NzgwMzQ5NTYsInNjb3BlIjoieG1jbG91ZC5jbTphZG1pbiB4bWNwdWIucXVldWU6ciB4bWNwdWIuam9icy50OnIgeG1jcHViLmpvYnMudDp3IHhtY2RhdGEuaXRlbXMudDpyIHhtY2RhdGEucHJ2ZHMudDpyYyB4bWNkYXRhLnBydmRzLnQ6ciB4bWNkYXRhLnBydmRzLnQ6dyB4bWNkYXRhLnBydmRzLnQ6bCBwZXJzb25hbGl6ZS5leHA6bW5nIHBlcnNvbmFsaXplLnRtcGw6ciBwZXJzb25hbGl6ZS5wb3M6bW5nIGFpLm9yZy5icmk6ciBjby5icmllZnM6ciBjby5icmllZnM6dyBhaS5vcmcuYnJkOnIgYWkub3JnLmJyaTp3Iiwib3JnX2lkIjoib3JnX09DbU9lRkx2OTg2R3pZRWkiLCJndHkiOiJjbGllbnQtY3JlZGVudGlhbHMiLCJhenAiOiJEYUNZdlR4SkFJQ3c0N2pHYUdzSGdBTjNXWmQ1NDNHRiJ9.mq3zwNyx9eRA6Izf7iYWmphFxX1xmqH5qK822TLZBKJz07CG-MnzRV0lpiAjl_MLFX5UV8RhnFQBfcbjYEa4Pjms2Tm2OI4dy4GnhI49iTT3QAur0N-_aQvHJprbdRklbusJrn3gy6Km0V9dSFHPA-cVUrnlFfFKYo3qu5N1xZqWwKivkxRDhr-IDwkzmsMqSAyRKT3QuowEsW-qgnxH5y0HdBuij4frkPVL_Rn5jRrp9KZd0WnA5up1sw3H_z2ut_TvkBfreHWyp5KNQox8G15rjpvCixI8togZbX5P7M0HGcmhBgtHsNebC5Oafjzec4rNghcGWSEBxOWaRZj4xA";
   if (!token) return undefined;
@@ -117,11 +178,26 @@ function getMediaUploadHeaders(): HeadersInit | undefined {
   };
 }
 
+function sanitizeSitecoreItemName(value: string): string {
+  // 1. Remove the file extension first (e.g., "photo.png" -> "photo")
+  const nameWithoutExtension = value.split('.').slice(0, -1).join('.');
+
+  const sanitized = nameWithoutExtension
+    .trim()
+    .replace(/[\\/:?"<>|\[\]]+/g, "-") // Replace invalid chars with hyphen
+    .replace(/\s+/g, "-")             // Replace spaces with hyphen (standard practice)
+    .replace(/-+/g, "-")              // Collapse multiple hyphens
+    .replace(/^[.\- ]+|[.\- ]+$/g, ""); // Trim hyphens/dots from start/end
+
+  return sanitized || "uploaded-file";
+}
+
 export async function uploadImageToMediaLibrary(
   client: ClientSDK,
-  params: { itemPath: string; file: File | Blob; fileName: string },
+  params: { file: File | Blob; fileName: string },
 ): Promise<UploadedMediaResult> {
-  const itemPath = "sai-sitecore/sai-sitecore";
+  const fileNameFormat = sanitizeSitecoreItemName(params.fileName);
+  const itemPath = `Project/sai-sitecore/sai-sitecore/${fileNameFormat}`;
   const mutationResponse = await executeAuthoringGraphql(client, {
     query: requestUploadUrlMutation,
     variables: { itemPath },
@@ -133,9 +209,9 @@ export async function uploadImageToMediaLibrary(
   }
 
   const formData = new FormData();
-  formData.append("", params.file, params.fileName);
+  formData.append("file", params.file, params.fileName);
 
-  const uploadResponse = await fetch(presignedUploadUrl, {
+  const uploadResponse = await fetch(`${presignedUploadUrl}&sc_apikey={4123E90E-698F-4C90-B250-4FD44D51C756}`, {
     method: "POST",
     headers: getMediaUploadHeaders(),
     body: formData,
@@ -147,10 +223,28 @@ export async function uploadImageToMediaLibrary(
   }
 
   const raw = (await uploadResponse.json().catch(() => ({}))) as Record<string, unknown>;
+  const uploadedId = typeof raw.Id === "string" ? raw.Id : undefined;
+  const uploadedName = typeof raw.Name === "string" ? raw.Name : undefined;
+  const uploadedFullPath = typeof raw.ItemPath === "string" ? raw.ItemPath : undefined;
+
+  let publishOperationId: string | undefined;
+  if (uploadedId) {
+    const publishResponse = await executeAuthoringGraphql(client, {
+      query: publishMediaItemMutation,
+      variables: { itemId: uploadedId },
+    });
+    publishOperationId = extractPublishOperationId(publishResponse);
+
+    if (!publishOperationId) {
+      throw new Error("Media uploaded but publish to Edge did not return an operationId.");
+    }
+  }
+
   return {
-    id: typeof raw.id === "string" ? raw.id : undefined,
-    name: typeof raw.name === "string" ? raw.name : undefined,
-    fullPath: typeof raw.fullPath === "string" ? raw.fullPath : undefined,
+    id: uploadedId,
+    name: uploadedName,
+    fullPath: uploadedFullPath,
+    publishOperationId,
     raw,
   };
 }
@@ -203,19 +297,16 @@ export async function listMediaLibraryItems(
   first = 50,
   edgeFolderPath?: string,
 ): Promise<MediaItemResult[]> {
-  const resolvedEdgePath =
-    (edgeFolderPath?.trim() ||
-      (typeof process !== "undefined"
-        ? process.env.NEXT_PUBLIC_SITECORE_MEDIA_LIBRARY_EDGE_FOLDER_PATH?.trim()
-        : "")) || undefined;
+  const resolvedEdgePath = edgeFolderPath?.trim();
 
   if (resolvedEdgePath && getExperienceEdgeGraphqlConfig()) {
     const fromEdge = await listMediaLibraryItemsFromEdge({
       folderPath: resolvedEdgePath,
       language: getEdgeDefaultLanguage(),
+      first,
     });
     if (fromEdge.length > 0) {
-      return fromEdge.slice(0, first);
+      return fromEdge;
     }
   }
 
