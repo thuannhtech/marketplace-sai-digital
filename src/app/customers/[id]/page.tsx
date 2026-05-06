@@ -61,8 +61,16 @@ function InfoRow({
     return (
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 sm:items-center">
         <p className="text-xs font-semibold text-subtle-text uppercase tracking-wider">{label}</p>
-        <div className="sm:col-span-2">
-          <Badge colorScheme={value ? "success" : "neutral"}>{value ? "Yes" : "No"}</Badge>
+        <div className="sm:col-span-2 flex items-center gap-3">
+          <input
+            type="checkbox"
+            checked={Boolean(value)}
+            disabled
+            readOnly
+            className="h-4 w-4 accent-primary"
+            aria-label={label}
+          />
+          <span className="text-sm text-subtle-text">{value ? "Yes" : "No"}</span>
         </div>
       </div>
     );
@@ -540,9 +548,6 @@ export default function CustomerDetailPage() {
               />
             </div>
           </div>
-
-          <InfoRow label="Date of Birth" value={dobDisplay} />
-          <InfoRow label="Opt In" value={Boolean(customer?.xp?.PersonalInformation?.Marketing)} type="checkbox" />
         </CollapsibleSection>
 
         <CollapsibleSection title="Other Information">
