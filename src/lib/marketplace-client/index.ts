@@ -1,6 +1,12 @@
 export { asMarketplaceSdkClient } from "./client";
 export { resolveSitecoreContextId } from "./context";
-export { deleteProductFromGraph, fetchMarketplaceProducts, publishProductToEdge, waitForPublishCompletion } from "./graph/product";
+export {
+  deleteProductFromGraph,
+  fetchMarketplaceProducts,
+  publishProductToEdge,
+  updateProductStatusInGraph,
+  waitForPublishCompletion,
+} from "./graph/product";
 export {
   getMediaItemById,
   listMediaLibraryItems,

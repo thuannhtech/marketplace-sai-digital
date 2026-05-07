@@ -33,7 +33,7 @@ const publishMediaItemMutation = `
 `;
 
 const getMediaItemQuery = `
-  query GetMediaItem($itemId: String!) {
+  query GetMediaItem($itemId: ID!) {
     item(where: { database: "master", itemId: $itemId }) {
       itemId
       name
@@ -169,9 +169,24 @@ function extractPublishOperationId(response: unknown): string | undefined {
   return typeof operationId === "string" && operationId.length > 0 ? operationId : undefined;
 }
 
-function getMediaUploadHeaders(): HeadersInit | undefined {
-  const token = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6InpnbnhyQk9IaXJ0WXp4dnl1WVhNZyJ9.eyJodHRwczovL2F1dGguc2l0ZWNvcmVjbG91ZC5pby9jbGFpbXMvY2xpZW50X25hbWUiOiJxdWFuZyB0ZXN0IiwiaHR0cHM6Ly9hdXRoLnNpdGVjb3JlY2xvdWQuaW8vY2xhaW1zL3RlbmFudF9pZCI6IjMwZGZiYTQ5LThjY2QtNDY3OS05OGI4LTA4ZGU2YjAzY2UxNyIsImh0dHBzOi8vYXV0aC5zaXRlY29yZWNsb3VkLmlvL2NsYWltcy90ZW5hbnRfbmFtZSI6InNhaWRpZ2l0YWxsNzcyMC1zYWlzaXRlY29yZWZmNTEtZGV2c2l0ZWNvcmUzZTBjIiwic2Nfc3lzX2lkIjoiNTkwNzYzN2MtY2RkZi00OGU5LWFjZWYtYmQwNmYxYTZiYWI4IiwiaHR0cHM6Ly9hdXRoLnNpdGVjb3JlY2xvdWQuaW8vY2xhaW1zL3RlbmFudC9jZHBfY2xpZW50X2tleSI6ImE0OWI2ZTU0YjE0NmNlZWIwNjBkOWU0ZGY0MWQzYmYwIiwiaHR0cHM6Ly9hdXRoLnNpdGVjb3JlY2xvdWQuaW8vY2xhaW1zL3RlbmFudC9BSUVtYmVkZGVkVGVuYW50SUQiOiI3NGU0OWMzMy1iMzJhLTRjNTgtNTIzZi0wOGRlNTljMTZjMjYiLCJodHRwczovL2F1dGguc2l0ZWNvcmVjbG91ZC5pby9jbGFpbXMvdGVuYW50L0NPRW1iZWRkZWRUZW5hbnRJRCI6IjI5MDM1ZmRjLTNjNDYtNGIyNi0zYjYzLTA4ZGU1OWM1NDY5YSIsImh0dHBzOi8vYXV0aC5zaXRlY29yZWNsb3VkLmlvL2NsYWltcy90ZW5hbnQvTU1TRW1iZWRkZWRUZW5hbnRJRCI6ImI1NjMxNmJiLWMyYmUtNGFmYS01MjQwLTA4ZGU1OWMxNmMyNiIsImh0dHBzOi8vYXV0aC5zaXRlY29yZWNsb3VkLmlvL2NsYWltcy9vcmdfaWQiOiJvcmdfT0NtT2VGTHY5ODZHellFaSIsImh0dHBzOi8vYXV0aC5zaXRlY29yZWNsb3VkLmlvL2NsYWltcy9vcmdfbmFtZSI6InNhaS1kaWdpdGFsLWxpbWl0ZWQiLCJodHRwczovL2F1dGguc2l0ZWNvcmVjbG91ZC5pby9jbGFpbXMvb3JnX2Rpc3BsYXlfbmFtZSI6IlNBSSBEaWdpdGFsIExpbWl0ZWQiLCJodHRwczovL2F1dGguc2l0ZWNvcmVjbG91ZC5pby9jbGFpbXMvb3JnX2FjY291bnRfaWQiOiIwMDExTjAwMDAxdHZlOWtRQUEiLCJodHRwczovL2F1dGguc2l0ZWNvcmVjbG91ZC5pby9jbGFpbXMvb3JnX3R5cGUiOiJwYXJ0bmVyIiwic2Nfb3JnX3JlZ2lvbiI6ImpwZSIsImlzcyI6Imh0dHBzOi8vYXV0aC5zaXRlY29yZWNsb3VkLmlvLyIsInN1YiI6IkRhQ1l2VHhKQUlDdzQ3akdhR3NIZ0FOM1daZDU0M0dGQGNsaWVudHMiLCJhdWQiOiJodHRwczovL2FwaS5zaXRlY29yZWNsb3VkLmlvIiwiaWF0IjoxNzc3OTQ4NTU2LCJleHAiOjE3NzgwMzQ5NTYsInNjb3BlIjoieG1jbG91ZC5jbTphZG1pbiB4bWNwdWIucXVldWU6ciB4bWNwdWIuam9icy50OnIgeG1jcHViLmpvYnMudDp3IHhtY2RhdGEuaXRlbXMudDpyIHhtY2RhdGEucHJ2ZHMudDpyYyB4bWNkYXRhLnBydmRzLnQ6ciB4bWNkYXRhLnBydmRzLnQ6dyB4bWNkYXRhLnBydmRzLnQ6bCBwZXJzb25hbGl6ZS5leHA6bW5nIHBlcnNvbmFsaXplLnRtcGw6ciBwZXJzb25hbGl6ZS5wb3M6bW5nIGFpLm9yZy5icmk6ciBjby5icmllZnM6ciBjby5icmllZnM6dyBhaS5vcmcuYnJkOnIgYWkub3JnLmJyaTp3Iiwib3JnX2lkIjoib3JnX09DbU9lRkx2OTg2R3pZRWkiLCJndHkiOiJjbGllbnQtY3JlZGVudGlhbHMiLCJhenAiOiJEYUNZdlR4SkFJQ3c0N2pHYUdzSGdBTjNXWmQ1NDNHRiJ9.mq3zwNyx9eRA6Izf7iYWmphFxX1xmqH5qK822TLZBKJz07CG-MnzRV0lpiAjl_MLFX5UV8RhnFQBfcbjYEa4Pjms2Tm2OI4dy4GnhI49iTT3QAur0N-_aQvHJprbdRklbusJrn3gy6Km0V9dSFHPA-cVUrnlFfFKYo3qu5N1xZqWwKivkxRDhr-IDwkzmsMqSAyRKT3QuowEsW-qgnxH5y0HdBuij4frkPVL_Rn5jRrp9KZd0WnA5up1sw3H_z2ut_TvkBfreHWyp5KNQox8G15rjpvCixI8togZbX5P7M0HGcmhBgtHsNebC5Oafjzec4rNghcGWSEBxOWaRZj4xA";
-  if (!token) return undefined;
+async function getMediaUploadHeaders(): Promise<HeadersInit | undefined> {
+  const response = await fetch("/api/sitecore/auth-token", {
+    method: "POST",
+  });
+
+  const data = (await response.json().catch(() => ({}))) as {
+    access_token?: string;
+    error?: string;
+  };
+
+  if (!response.ok) {
+    throw new Error(data.error || "Unable to fetch Sitecore auth token.");
+  }
+
+  const token = typeof data.access_token === "string" ? data.access_token.trim() : "";
+  if (!token) {
+    throw new Error("Sitecore auth token response did not include an access token.");
+  }
 
   return {
     Authorization: `Bearer ${token}`,
@@ -210,10 +225,11 @@ export async function uploadImageToMediaLibrary(
 
   const formData = new FormData();
   formData.append("file", params.file, params.fileName);
+  const uploadHeaders = await getMediaUploadHeaders();
 
   const uploadResponse = await fetch(`${presignedUploadUrl}&sc_apikey={4123E90E-698F-4C90-B250-4FD44D51C756}`, {
     method: "POST",
-    headers: getMediaUploadHeaders(),
+    headers: uploadHeaders,
     body: formData,
   });
 

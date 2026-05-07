@@ -26,6 +26,7 @@ import {
   getMediaItemById,
   listMediaLibraryItems,
   publishProductToEdge,
+  updateProductStatusInGraph,
   uploadImageToMediaLibrary,
   waitForPublishCompletion,
 } from "@/src/lib/marketplace-client";
@@ -109,6 +110,10 @@ function getCreatedDateTimestamp(value?: string): number {
 
 function formatSitecoreMultilistValue(itemIds: string[]): string {
   return itemIds.join("|");
+}
+
+function normalizeMediaItemId(value: string): string {
+  return value.replace(/[{}-]/g, "").toUpperCase();
 }
 
 function buildMediaUploadItemPath(folderPath: string, fileName: string): string {
@@ -227,25 +232,27 @@ const SelectedMediaLibraryGrid = memo(function SelectedMediaLibraryGrid({
   }
 
   return (
-    <div className="space-y-3">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
       {items.map((item) => (
         <div
           key={item.itemId}
-          className="flex items-center gap-3 rounded-2xl border border-sidebar-border bg-white px-3 py-3 shadow-[0_8px_30px_rgba(15,23,42,0.05)]"
+          className="overflow-hidden rounded-2xl border border-sidebar-border bg-white shadow-[0_8px_30px_rgba(15,23,42,0.05)]"
         >
-          <div className="relative h-14 w-14 overflow-hidden rounded-xl bg-muted">
+          <div className="relative aspect-[4/3] overflow-hidden bg-muted">
             <div className="absolute left-1.5 top-1.5 z-10 rounded-md bg-primary px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-white">
               Linked
             </div>
             <MediaLibraryPickThumb src={item.previewUrl} label={item.name} />
           </div>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-semibold text-body-text">{item.name}</p>
-            <p className="truncate text-xs text-subtle-text">{item.path}</p>
+          <div className="flex items-start gap-3 px-4 py-3">
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-semibold text-body-text">{item.name}</p>
+              <p className="truncate text-xs text-subtle-text">{item.path}</p>
+            </div>
+            <Button type="button" variant="outline" size="sm" onClick={() => onRemove(item.itemId)} disabled={isBusy}>
+              <Icon path={mdi.mdiTrashCanOutline} className="h-4 w-4" />
+            </Button>
           </div>
-          <Button type="button" variant="outline" size="sm" onClick={() => onRemove(item.itemId)} disabled={isBusy}>
-            <Icon path={mdi.mdiTrashCanOutline} className="h-4 w-4" />
-          </Button>
         </div>
       ))}
     </div>
@@ -255,6 +262,10 @@ const SelectedMediaLibraryGrid = memo(function SelectedMediaLibraryGrid({
 function MediaLibraryPickThumb({ src, label }: { src?: string; label: string }) {
   const [loadFailed, setLoadFailed] = useState(false);
   const imageSrc = src?.trim();
+
+  useEffect(() => {
+    setLoadFailed(false);
+  }, [imageSrc]);
 
   return (
     <div className="relative h-full min-h-[120px] w-full">
@@ -712,6 +723,7 @@ export default function ProductPage() {
 
   async function handleOpenUpdateModal(product: ProductRow) {
     clearMessage();
+    const mediaItemIds = product.mediaItemIds ?? [];
     setEditingProduct(product);
     setPendingLocalPublishProduct({
       id: product.id,
@@ -725,11 +737,12 @@ export default function ProductPage() {
       price: product.price,
       quantity: product.quantity,
     });
-    setSelectedMediaItemIds(product.mediaItemIds ?? []);
+    setSelectedMediaItemIds(mediaItemIds);
     setSelectedMediaItems([]);
     clearSelectedImages();
     setMediaLibraryOptions([]);
     setIsCreateModalOpen(true);
+    await syncSelectedMediaItems(mediaItemIds);
   }
 
   function handleOpenDeleteConfirm(product: ProductRow) {
@@ -835,12 +848,12 @@ export default function ProductPage() {
     }
 
     const fromLoadedOptions = new Map(
-      mediaLibraryOptions.map((item) => [item.itemId.replace(/[{}]/g, "").toUpperCase(), item] as const),
+      mediaLibraryOptions.map((item) => [normalizeMediaItemId(item.itemId), item] as const),
     );
 
     const resolved = new Map<string, MediaLibraryOption>();
     for (const itemId of itemIds) {
-      const normalizedItemId = itemId.replace(/[{}]/g, "").toUpperCase();
+      const normalizedItemId = normalizeMediaItemId(itemId);
       const existing = fromLoadedOptions.get(normalizedItemId);
       if (existing) {
         resolved.set(normalizedItemId, existing);
@@ -848,7 +861,7 @@ export default function ProductPage() {
     }
 
     if (client && isInitialized) {
-      const missingIds = itemIds.filter((itemId) => !resolved.has(itemId.replace(/[{}]/g, "").toUpperCase()));
+      const missingIds = itemIds.filter((itemId) => !resolved.has(normalizeMediaItemId(itemId)));
       if (missingIds.length > 0) {
         const fetched = await Promise.all(
           missingIds.map(async (itemId) => await getMediaItemById(client, itemId)),
@@ -856,14 +869,14 @@ export default function ProductPage() {
 
         for (const item of fetched) {
           if (item) {
-            resolved.set(item.itemId.replace(/[{}]/g, "").toUpperCase(), item);
+            resolved.set(normalizeMediaItemId(item.itemId), item);
           }
         }
       }
     }
 
     const ordered = itemIds
-      .map((itemId) => resolved.get(itemId.replace(/[{}]/g, "").toUpperCase()))
+      .map((itemId) => resolved.get(normalizeMediaItemId(itemId)))
       .filter((item): item is MediaLibraryOption => Boolean(item));
 
     setSelectedMediaItems(ordered);
@@ -923,7 +936,6 @@ export default function ProductPage() {
           .map((item) => item.id)
           .filter((id): id is string => Boolean(id));
         setSelectedMediaItemIds((prev) => Array.from(new Set([...prev, ...uploadedMediaItemIds])));
-        await handleLoadMediaLibrary({ quiet: true });
       }
 
       const mergedMediaItemIds = Array.from(new Set([...selectedMediaItemIds, ...uploadedMediaItemIds]));
@@ -950,6 +962,18 @@ export default function ProductPage() {
           ...payload,
           ordercloud_id: editingProduct.ordercloud_id,
         });
+        if (!client || !isInitialized) {
+          throw new Error("Marketplace client is not ready to update product status.");
+        }
+        await updateProductStatusInGraph(client, {
+          itemId: editingProduct.id,
+          status: "Draft",
+        });
+        setEditingProduct((prev) => (prev ? { ...prev, status: STATUS_DRAFT } : prev));
+        setPendingLocalPublishProduct({
+          id: editingProduct.id,
+          modelName: normalizedModelName,
+        });
       } else {
         mutationResponse = await createProduct(payload);
       }
@@ -957,8 +981,10 @@ export default function ProductPage() {
 
       const wasEditingProduct = Boolean(editingProduct);
       clearSelectedImages();
-      setPendingLocalPublishProduct(null);
-      handleCreateModalOpenChange(false);
+      if (!wasEditingProduct) {
+        setPendingLocalPublishProduct(null);
+        handleCreateModalOpenChange(false);
+      }
       clearMessage();
       showToast(
         wasEditingProduct
@@ -1291,6 +1317,7 @@ export default function ProductPage() {
                 onChange={(event) =>
                   setCreateForm((prev) => ({ ...prev, model_name: event.target.value }))
                 }
+                disabled={Boolean(editingProduct)}
               />
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -1334,6 +1361,21 @@ export default function ProductPage() {
                 value={createForm.desc}
                 onChange={(desc) => setCreateForm((prev) => ({ ...prev, desc }))}
               />
+            </div>
+
+            <div className="space-y-2">
+              {selectedMediaItemIds.length > 0 ? (
+                <>
+                  <p className="text-sm font-medium text-body-text">
+                    Selected media library images ({selectedMediaItemIds.length})
+                  </p>
+                  <SelectedMediaLibraryGrid
+                    items={selectedMediaItems}
+                    isBusy={isCreateModalBusy}
+                    onRemove={removeSelectedMediaItem}
+                  />
+                </>
+              ) : null}
             </div>
 
             <div className="space-y-2">
@@ -1389,22 +1431,6 @@ export default function ProductPage() {
             </div>
 
             <div className="space-y-2">
-              <p className="text-sm font-medium text-body-text">
-                Selected media library images ({selectedMediaItemIds.length})
-              </p>
-              {selectedMediaItems.length > 0 ? (
-                <p className="text-xs text-subtle-text">
-                  {selectedMediaItems.map((item) => item.name).join(", ")}
-                </p>
-              ) : null}
-              <SelectedMediaLibraryGrid
-                items={selectedMediaItems}
-                isBusy={isCreateModalBusy}
-                onRemove={removeSelectedMediaItem}
-              />
-            </div>
-
-            <div className="space-y-2">
               {hasLoadedMediaLibraryOptions ? (
                 <>
                   <p className="text-sm font-medium text-body-text">
@@ -1451,7 +1477,7 @@ export default function ProductPage() {
               <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-[0_20px_60px_rgba(15,23,42,0.25)]">
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <h2 className="text-xl font-semibold text-body-text">Web Database Publish Decision</h2>
+                    <h2 className="text-xl font-semibold text-body-text">Web publish</h2>
                     <p className="mt-1 text-sm text-subtle-text">
                       Publish <span className="font-medium text-body-text">{pendingLocalPublishProduct.modelName}</span> to Web database?
                     </p>

@@ -68,6 +68,24 @@ const deleteProductItemMutation = `
   }
 `;
 
+const updateProductStatusMutation = `
+  mutation UpdateProductStatus($itemId: ID!, $status: String!, $language: String!) {
+    updateItem(
+      input: {
+        database: "master"
+        itemId: $itemId
+        language: $language
+        fields: [{ name: "Status", value: $status, reset: false }]
+      }
+    ) {
+      item {
+        itemId
+        status: field(name: "Status") { value }
+      }
+    }
+  }
+`;
+
 const publishingStatusQuery = `
   query PublishingStatus($publishingOperationId: String!) {
     publishingStatus(publishingOperationId: $publishingOperationId) {
@@ -237,6 +255,36 @@ function extractDeleteSuccessful(response: unknown): boolean {
       : undefined;
 
   return deleteItem?.successful === true;
+}
+
+function extractUpdatedProductStatus(response: unknown): string | undefined {
+  if (!response || typeof response !== "object") return undefined;
+
+  const root = response as Record<string, unknown>;
+  const data =
+    root.data && typeof root.data === "object"
+      ? (root.data as Record<string, unknown>)
+      : undefined;
+  const nestedData =
+    data?.data && typeof data.data === "object"
+      ? (data.data as Record<string, unknown>)
+      : undefined;
+  const source = nestedData ?? data;
+  const updateItem =
+    source?.updateItem && typeof source.updateItem === "object"
+      ? (source.updateItem as Record<string, unknown>)
+      : undefined;
+  const item =
+    updateItem?.item && typeof updateItem.item === "object"
+      ? (updateItem.item as Record<string, unknown>)
+      : undefined;
+  const statusField =
+    item?.status && typeof item.status === "object"
+      ? (item.status as Record<string, unknown>)
+      : undefined;
+  const value = statusField?.value;
+
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
 }
 
 interface PublishingStatusResult {
@@ -412,6 +460,39 @@ export async function deleteProductFromGraph(
   }
 
   return { successful: true };
+}
+
+export async function updateProductStatusInGraph(
+  client: ClientSDK,
+  params: { itemId: string; status: string; language?: string },
+): Promise<{ status: string }> {
+  const itemId = params.itemId.trim();
+  const status = params.status.trim();
+  const language = params.language?.trim() || "en";
+
+  if (!itemId) {
+    throw new Error("Missing itemId for status update.");
+  }
+
+  if (!status) {
+    throw new Error("Missing status for status update.");
+  }
+
+  const response = await executeAuthoringGraphql(client, {
+    query: updateProductStatusMutation,
+    variables: {
+      itemId,
+      status,
+      language,
+    },
+  });
+  const updatedStatus = extractUpdatedProductStatus(response);
+
+  if (!updatedStatus) {
+    throw new Error("Update item did not return the Status field value.");
+  }
+
+  return { status: updatedStatus };
 }
 
 export async function waitForPublishCompletion(
