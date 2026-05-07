@@ -18,38 +18,66 @@ const marketplaceProductsQuery = `
 `;
 
 const sitecoreProductFolderId = "{3F757534-28A6-43F3-9DEA-6DF92C6FFCC2}";
+const SITECORE_PRODUCTS_FETCH_LIMIT = 100;
 
 const sitecoreProductsQuery = `
   query {
     item(where: { database: "master", itemId: "${sitecoreProductFolderId}" }) {
-      children(first: 10) {
+      children(
+        first: ${SITECORE_PRODUCTS_FETCH_LIMIT}
+      ) {
         nodes {
           id: itemId
+          created_date: field(name: "__Created") { value }
           model_name: field(name: "ModelName") { value }
           description: field(name: "Description") { value }
           price: field(name: "Price") { value }
-          ordercloud_id: field(name: "OrdercloudID") { value }
+          ordercloud_id: field(name: "OrderCloudProductId") { value }
           quantity: field(name: "Quantity") { value }
           status: field(name: "Status") { value }
           media_item_ids: field(name: "Images") { value }
         }
       }
     }
-  }
-`;
+  }`;
 
 const publishProductToEdgeMutation = `
-  mutation PublishProductToEdge($itemId: ID!, $language: String!) {
+  mutation PublishProductToEdge($itemId: ID!, $languages: [String!]!, $publishSubItems: Boolean!) {
     publishItem(input: {
       sourceDatabase: "master",
       targetDatabases: ["experienceedge"],
       rootItemIds: [$itemId],
-      publishSubItems: false,
+      publishSubItems: $publishSubItems,
       publishRelatedItems: false,
       publishItemMode: SMART,
-      languages: [$language]
+      languages: $languages
     }) {
       operationId
+    }
+  }
+`;
+
+const deleteProductItemMutation = `
+  mutation DeleteProductItem($itemId: ID!, $permanently: Boolean!) {
+    deleteItem(input: {
+      itemId: $itemId
+      permanently: $permanently
+    }) {
+      successful
+    }
+  }
+`;
+
+const publishingStatusQuery = `
+  query PublishingStatus($publishingOperationId: String!) {
+    publishingStatus(publishingOperationId: $publishingOperationId) {
+      state
+      isDone
+      isFailed
+      processed
+      targetDatabase {
+        name
+      }
     }
   }
 `;
@@ -74,6 +102,14 @@ function normalizeProduct(value: Record<string, unknown>, index: number): Produc
     price: Number(value.price ?? 0),
     quantity: Number(value.quantity ?? 0),
     status: String(value.status ?? "unknown"),
+    createdDate:
+      typeof value.created_date === "string"
+        ? value.created_date
+        : typeof value.createdDate === "string"
+          ? value.createdDate
+          : typeof value.CreatedDate === "string"
+            ? value.CreatedDate
+            : undefined,
     mediaItemIds: parseMediaItemIds(value.media_item_ids),
   };
 }
@@ -101,6 +137,7 @@ function mapSitecoreItems(items: unknown[]): ProductRow[] {
     .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object"))
     .map((item, index) => {
       const modelField = item.model_name as Record<string, unknown> | undefined;
+      const createdDateField = item.created_date as Record<string, unknown> | undefined;
       const descriptionField = item.description as Record<string, unknown> | undefined;
       const ordercloud_idField = item.ordercloud_id as Record<string, unknown> | undefined;
       const priceField = item.price as Record<string, unknown> | undefined;
@@ -116,9 +153,17 @@ function mapSitecoreItems(items: unknown[]): ProductRow[] {
         price: Number(priceField?.value ?? 0),
         quantity: Number(quantityField?.value ?? 0),
         status: String(statusField?.value ?? "Active"),
+        createdDate: typeof createdDateField?.value === "string" ? createdDateField.value : undefined,
         mediaItemIds: parseMediaItemIds(mediaItemIdsField?.value),
       };
     });
+}
+
+function toTimestamp(value?: string): number {
+  if (!value) return Number.NEGATIVE_INFINITY;
+
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? Number.NEGATIVE_INFINITY : parsed;
 }
 
 async function executeAuthoringGraphql(
@@ -171,6 +216,66 @@ function extractPublishOperationId(response: unknown): string | undefined {
   const operationId = publishItem?.operationId;
 
   return typeof operationId === "string" && operationId.length > 0 ? operationId : undefined;
+}
+
+function extractDeleteSuccessful(response: unknown): boolean {
+  if (!response || typeof response !== "object") return false;
+
+  const root = response as Record<string, unknown>;
+  const data =
+    root.data && typeof root.data === "object"
+      ? (root.data as Record<string, unknown>)
+      : undefined;
+  const nestedData =
+    data?.data && typeof data.data === "object"
+      ? (data.data as Record<string, unknown>)
+      : undefined;
+  const source = nestedData ?? data;
+  const deleteItem =
+    source?.deleteItem && typeof source.deleteItem === "object"
+      ? (source.deleteItem as Record<string, unknown>)
+      : undefined;
+
+  return deleteItem?.successful === true;
+}
+
+interface PublishingStatusResult {
+  state?: string;
+  isDone: boolean;
+  isFailed: boolean;
+}
+
+function extractPublishingStatus(response: unknown): PublishingStatusResult | undefined {
+  if (!response || typeof response !== "object") return undefined;
+
+  const root = response as Record<string, unknown>;
+  const data =
+    root.data && typeof root.data === "object"
+      ? (root.data as Record<string, unknown>)
+      : undefined;
+  const nestedData =
+    data?.data && typeof data.data === "object"
+      ? (data.data as Record<string, unknown>)
+      : undefined;
+  const source = nestedData ?? data;
+  const publishingStatus =
+    source?.publishingStatus && typeof source.publishingStatus === "object"
+      ? (source.publishingStatus as Record<string, unknown>)
+      : undefined;
+
+  if (!publishingStatus) return undefined;
+
+  return {
+    state: typeof publishingStatus.state === "string" ? publishingStatus.state : undefined,
+    isDone: publishingStatus.isDone === true,
+    isFailed: publishingStatus.isFailed === true,
+  };
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 export async function fetchMarketplaceProducts(client: ClientSDK): Promise<ProductRow[]> {
@@ -257,18 +362,23 @@ export async function fetchMarketplaceProducts(client: ClientSDK): Promise<Produ
 
 export async function publishProductToEdge(
   client: ClientSDK,
-  params: { itemId: string; language?: string },
+  params: { itemId: string; languages?: string[]; publishSubItems?: boolean },
 ): Promise<{ operationId: string }> {
   const itemId = params.itemId.trim();
   if (!itemId) {
     throw new Error("Missing itemId for local publish.");
   }
 
+  const languages =
+    params.languages?.map((language) => language.trim()).filter((language) => language.length > 0) ??
+    ["en", "vi", "ja-JP"];
+
   const response = await executeAuthoringGraphql(client, {
     query: publishProductToEdgeMutation,
     variables: {
       itemId,
-      language: params.language?.trim() || "en",
+      languages,
+      publishSubItems: params.publishSubItems ?? false,
     },
   });
   const operationId = extractPublishOperationId(response);
@@ -278,4 +388,64 @@ export async function publishProductToEdge(
   }
 
   return { operationId };
+}
+
+export async function deleteProductFromGraph(
+  client: ClientSDK,
+  params: { itemId: string; permanently?: boolean },
+): Promise<{ successful: true }> {
+  const itemId = params.itemId.trim();
+  if (!itemId) {
+    throw new Error("Missing itemId for delete.");
+  }
+
+  const response = await executeAuthoringGraphql(client, {
+    query: deleteProductItemMutation,
+    variables: {
+      itemId,
+      permanently: params.permanently ?? true,
+    },
+  });
+
+  if (!extractDeleteSuccessful(response)) {
+    throw new Error("Delete item did not return successful=true.");
+  }
+
+  return { successful: true };
+}
+
+export async function waitForPublishCompletion(
+  client: ClientSDK,
+  params: { operationId: string; timeoutMs?: number; pollIntervalMs?: number },
+): Promise<{ state?: string }> {
+  const operationId = params.operationId.trim();
+  if (!operationId) {
+    throw new Error("Missing operationId for publishing status.");
+  }
+
+  const timeoutMs = params.timeoutMs ?? 120000;
+  const pollIntervalMs = params.pollIntervalMs ?? 3000;
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const response = await executeAuthoringGraphql(client, {
+      query: publishingStatusQuery,
+      variables: {
+        publishingOperationId: operationId,
+      },
+    });
+
+    const status = extractPublishingStatus(response);
+    if (status?.isFailed) {
+      throw new Error(`Publishing failed${status.state ? `: ${status.state}` : "."}`);
+    }
+
+    if (status?.isDone) {
+      return { state: status.state };
+    }
+
+    await delay(pollIntervalMs);
+  }
+
+  throw new Error("Timed out waiting for publishing to complete.");
 }

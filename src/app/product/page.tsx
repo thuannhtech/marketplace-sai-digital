@@ -21,11 +21,13 @@ import { createProduct, updateProduct } from "@/src/lib/api/products-api";
 
 import { CreateProductBody, CreateProductImage, ProductRow } from "@/src/lib/domain/product/product.types";
 import {
+  deleteProductFromGraph,
   fetchMarketplaceProducts,
   getMediaItemById,
   listMediaLibraryItems,
   publishProductToEdge,
   uploadImageToMediaLibrary,
+  waitForPublishCompletion,
 } from "@/src/lib/marketplace-client";
 import { useMarketplace } from "@/src/providers/MarketplaceProvider";
 
@@ -35,10 +37,13 @@ const STATUS_APPROVE = "approve";
 const STATUS_DRAFT = "draft";
 const STATUS_AWAITING_APPROVAL = "awaiting approval";
 const STATUS_OPTIONS = [STATUS_ALL, STATUS_APPROVE, STATUS_DRAFT, STATUS_AWAITING_APPROVAL] as const;
+const PRODUCT_FOLDER_ITEM_ID = "{3F757534-28A6-43F3-9DEA-6DF92C6FFCC2}";
 const MEDIA_LIBRARY_FOLDER_ID = "{FE08FD99-630B-4A0D-94D7-8767562AA0FC}";
 /** Experience Edge `item(path: …)` for `ListMediaUrls` (public `url.url` on children). Override via env. */
 const MEDIA_LIBRARY_EDGE_FOLDER_PATH = "/sitecore/media library/Project/sai-sitecore/sai-sitecore";
+const EDGE_PUBLISH_LANGUAGES = ["en", "vi", "ja-JP"] as const;
 type AlertVariant = "default" | "destructive";
+type ToastVariant = "success" | "error";
 
 const DEFAULT_CREATE_FORM: CreateProductBody = {
   model_name: "",
@@ -82,6 +87,25 @@ function getErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
+function getCreatedDateTimestamp(value?: string): number {
+  if (!value) return Number.NEGATIVE_INFINITY;
+
+  const sitecoreMatch = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/.exec(value);
+  if (sitecoreMatch) {
+    const [, year, month, day, hour, minute, second] = sitecoreMatch;
+    return Date.UTC(
+      Number(year),
+      Number(month) - 1,
+      Number(day),
+      Number(hour),
+      Number(minute),
+      Number(second),
+    );
+  }
+
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? Number.NEGATIVE_INFINITY : parsed;
+}
 
 function formatSitecoreMultilistValue(itemIds: string[]): string {
   return itemIds.join("|");
@@ -177,6 +201,16 @@ interface MediaLibraryOption {
 interface PendingLocalPublishProduct {
   id?: string;
   modelName: string;
+}
+
+interface PendingDeleteProduct {
+  id: string;
+  modelName: string;
+}
+
+interface ToastState {
+  message: string;
+  variant: ToastVariant;
 }
 
 const SelectedMediaLibraryGrid = memo(function SelectedMediaLibraryGrid({
@@ -362,6 +396,7 @@ const ProductTable = memo(function ProductTable({
   onPreviousPage,
   onNextPage,
   onEditRow,
+  onDeleteRow,
 }: {
   isFetching: boolean;
   paginatedRows: ProductRow[];
@@ -372,6 +407,7 @@ const ProductTable = memo(function ProductTable({
   onPreviousPage: () => void;
   onNextPage: () => void;
   onEditRow: (row: ProductRow) => void;
+  onDeleteRow: (row: ProductRow) => void;
 }) {
   return (
     <Card className="border-sidebar-border">
@@ -417,9 +453,14 @@ const ProductTable = memo(function ProductTable({
                       </Badge>
                     </td>
                     <td className="px-4 py-3">
-                      <Button type="button" variant="outline" size="sm" onClick={() => onEditRow(row)}>
-                        Update
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        <Button type="button" variant="outline" size="sm" onClick={() => onEditRow(row)}>
+                          Update
+                        </Button>
+                        <Button type="button" variant="outline" size="sm" colorScheme="danger" onClick={() => onDeleteRow(row)}>
+                          Delete
+                        </Button>
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -589,14 +630,22 @@ export default function ProductPage() {
   const [isProcessingImages, setIsProcessingImages] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [messageVariant, setMessageVariant] = useState<AlertVariant>("default");
+  const [toast, setToast] = useState<ToastState | null>(null);
   const [pendingLocalPublishProduct, setPendingLocalPublishProduct] = useState<PendingLocalPublishProduct | null>(null);
-  const [publishLanguage, setPublishLanguage] = useState("en");
+  const [pendingDeleteProduct, setPendingDeleteProduct] = useState<PendingDeleteProduct | null>(null);
   const [isLocalPublishConfirmOpen, setIsLocalPublishConfirmOpen] = useState(false);
   const [isSubmittingLocalPublish, setIsSubmittingLocalPublish] = useState(false);
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const [isDeletingProduct, setIsDeletingProduct] = useState(false);
   const createModalContentRef = useRef<HTMLDivElement>(null);
   const productImagesInputRef = useRef<HTMLInputElement>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isCreateModalBusy =
     isCreating || isProcessingImages || isUploadingToMediaLibrary || isMediaLibraryLoading;
+  const hasCreatedPendingPublish = !editingProduct && Boolean(pendingLocalPublishProduct?.id);
+  const canShowPublishActions =
+    Boolean(pendingLocalPublishProduct) &&
+    (!editingProduct || normalizeStatus(editingProduct.status) === STATUS_DRAFT);
 
   function showMessage(text: string, variant: AlertVariant = "default") {
     setMessageVariant(variant);
@@ -608,14 +657,32 @@ export default function ProductPage() {
     setMessageVariant("default");
   }
 
+  function showToast(message: string, variant: ToastVariant = "success") {
+    if (toastTimerRef.current) {
+      clearTimeout(toastTimerRef.current);
+    }
+
+    setToast({ message, variant });
+    toastTimerRef.current = setTimeout(() => {
+      setToast(null);
+      toastTimerRef.current = null;
+    }, 3000);
+  }
+
   function closeLocalPublishConfirm() {
     setIsLocalPublishConfirmOpen(false);
+  }
+
+  function closeDeleteConfirm() {
+    setIsDeleteConfirmOpen(false);
   }
 
   function resetProductModalState() {
     setEditingProduct(null);
     setPendingLocalPublishProduct(null);
     setIsLocalPublishConfirmOpen(false);
+    setPendingDeleteProduct(null);
+    setIsDeleteConfirmOpen(false);
     setCreateForm(DEFAULT_CREATE_FORM);
     setSelectedMediaItemIds([]);
     setSelectedMediaItems([]);
@@ -663,6 +730,15 @@ export default function ProductPage() {
     clearSelectedImages();
     setMediaLibraryOptions([]);
     setIsCreateModalOpen(true);
+  }
+
+  function handleOpenDeleteConfirm(product: ProductRow) {
+    clearMessage();
+    setPendingDeleteProduct({
+      id: product.id,
+      modelName: product.modelName,
+    });
+    setIsDeleteConfirmOpen(true);
   }
 
   const clearSelectedImages = useCallback(function clearSelectedImages() {
@@ -877,21 +953,23 @@ export default function ProductPage() {
       } else {
         mutationResponse = await createProduct(payload);
       }
-      setCreateForm(DEFAULT_CREATE_FORM);
+      const resolvedProductId = editingProduct?.id ?? extractMutationProductId(mutationResponse);
+
+      const wasEditingProduct = Boolean(editingProduct);
       clearSelectedImages();
-      setSelectedMediaItemIds([]);
-      setSelectedMediaItems([]);
+      setPendingLocalPublishProduct(null);
       handleCreateModalOpenChange(false);
-      if (editingProduct) {
-        setPendingLocalPublishProduct({
-          id: editingProduct.id ?? extractMutationProductId(mutationResponse),
-          modelName: normalizedModelName,
-        });
-        showMessage("Updated successfully. Ready for local publish.");
-      } else {
-        setPendingLocalPublishProduct(null);
-        showMessage("Created successfully.");
-      }
+      clearMessage();
+      showToast(
+        wasEditingProduct
+          ? resolvedProductId
+            ? "Updated successfully."
+            : "Updated successfully."
+          : resolvedProductId
+            ? "Created successfully."
+            : "Created successfully.",
+      );
+
       await handleLoadProducts({ quiet: true });
     } catch (createError) {
       showMessage(
@@ -904,12 +982,52 @@ export default function ProductPage() {
     }
   }
 
+  async function handleDeleteProduct() {
+    if (!pendingDeleteProduct) return;
+    if (!client || !isInitialized) {
+      showMessage("Marketplace client is not ready for web database publish.", "destructive");
+      return;
+    }
+
+    const deletingProduct = pendingDeleteProduct;
+    setIsDeletingProduct(true);
+    clearMessage();
+    try {
+      await deleteProductFromGraph(client, {
+        itemId: deletingProduct.id,
+      });
+      const publishResult = await publishProductToEdge(client, {
+        itemId: PRODUCT_FOLDER_ITEM_ID,
+        languages: [...EDGE_PUBLISH_LANGUAGES],
+        publishSubItems: false,
+      });
+      await waitForPublishCompletion(client, {
+        operationId: publishResult.operationId,
+      });
+
+      if (editingProduct?.id === deletingProduct.id) {
+        resetProductModalState();
+        setIsCreateModalOpen(false);
+      }
+
+      closeDeleteConfirm();
+      setPendingDeleteProduct(null);
+      await handleLoadProducts({ quiet: true });
+      clearMessage();
+      showToast("Deleted and published successfully.");
+    } catch (error) {
+      showMessage(getErrorMessage(error, "Unable to delete product."), "destructive");
+    } finally {
+      setIsDeletingProduct(false);
+    }
+  }
+
   const visibleRows = useMemo(() => {
     const normalizedKeyword = keyword.trim().toLowerCase();
     const normalizedCategory = categoryFilter.trim().toLowerCase();
     const normalizedModel = modelFilter.trim().toLowerCase();
 
-    return rows.filter((row) => {
+    const filteredRows = rows.filter((row) => {
       const matchesKeyword =
         !normalizedKeyword ||
         row.modelName.toLowerCase().includes(normalizedKeyword) ||
@@ -925,6 +1043,10 @@ export default function ProductPage() {
 
       return matchesKeyword && matchesCategory && matchesModel && matchesStatus && matchesLanguage;
     });
+
+    return [...filteredRows].sort(
+      (left, right) => getCreatedDateTimestamp(right.createdDate) - getCreatedDateTimestamp(left.createdDate),
+    );
   }, [categoryFilter, keyword, languageFilter, modelFilter, rows, statusFilter]);
 
   const totalPages = Math.max(1, Math.ceil(visibleRows.length / PAGE_SIZE));
@@ -967,8 +1089,34 @@ export default function ProductPage() {
     void syncSelectedMediaItems(selectedMediaItemIds);
   }, [selectedMediaItemIds, syncSelectedMediaItems]);
 
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) {
+        clearTimeout(toastTimerRef.current);
+      }
+    };
+  }, []);
+
   return (
     <div className="space-y-6">
+      {toast ? (
+        <div className="fixed right-4 top-4 z-[80]">
+          <div
+            className={`flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-medium text-white shadow-[0_14px_40px_rgba(15,23,42,0.18)] ${
+              toast.variant === "success" ? "bg-green-600" : "bg-destructive"
+            }`}
+            role="status"
+            aria-live="polite"
+          >
+            <Icon
+              path={toast.variant === "success" ? mdi.mdiCheckCircle : mdi.mdiAlertCircle}
+              className="h-5 w-5"
+            />
+            <span>{toast.message}</span>
+          </div>
+        </div>
+      ) : null}
+
       <section className="space-y-2">
         <h1 className="text-2xl font-bold tracking-tight text-body-text">Product Listing</h1>
       </section>
@@ -1092,7 +1240,9 @@ export default function ProductPage() {
                 <BlokLoader
                   label={
                     isCreating
-                      ? "Creating product..."
+                      ? editingProduct
+                        ? "Saving changes..."
+                        : "Creating product..."
                       : isUploadingToMediaLibrary
                         ? "Uploading images..."
                         : isMediaLibraryLoading
@@ -1112,21 +1262,19 @@ export default function ProductPage() {
               </Alert>
             )}
 
-            {editingProduct &&
-            pendingLocalPublishProduct &&
-            normalizeStatus(editingProduct.status) === STATUS_DRAFT ? (
+            {canShowPublishActions ? (
               <div className="rounded-2xl border border-sidebar-border bg-white p-4 shadow-[0_10px_25px_rgba(15,23,42,0.06)]">
                 <div className="flex flex-col gap-3 md:flex-row md:items-center">
-                  <select
-                    className="border-input focus:border-primary focus:ring-primary h-10 w-full rounded-md border bg-body-bg px-3 text-sm focus:ring-1 focus:outline-none md:max-w-md"
-                    value={publishLanguage}
-                    onChange={(event) => setPublishLanguage(event.target.value)}
-                  >
-                    <option value="en">English (region) : English (region)</option>
-                  </select>
+                  <div className="rounded-md border border-sidebar-border bg-[#f7f5f2] px-3 py-2 text-sm text-subtle-text md:max-w-md">
+                    Publish languages: English, Vietnamese, Japanese
+                  </div>
                   <div className="md:ml-auto">
-                    <Button type="button" onClick={() => setIsLocalPublishConfirmOpen(true)}>
-                      Submit for Edge Publish
+                    <Button
+                      type="button"
+                      onClick={() => setIsLocalPublishConfirmOpen(true)}
+                      disabled={!pendingLocalPublishProduct?.id}
+                    >
+                      Publish to web
                     </Button>
                   </div>
                 </div>
@@ -1284,9 +1432,11 @@ export default function ProductPage() {
             >
               Cancel
             </Button>
-            <Button onClick={handleCreateProduct} disabled={isCreateModalBusy}>
+            <Button onClick={handleCreateProduct} disabled={isCreateModalBusy || hasCreatedPendingPublish}>
               {isCreating ? (
-                <BlokLoader label="Creating..." />
+                <BlokLoader label={editingProduct ? "Saving..." : "Creating..."} />
+              ) : hasCreatedPendingPublish ? (
+                "Created"
               ) : (
                 <>
                   <Icon path={mdi.mdiPlus} className="mr-2 h-4 w-4" />
@@ -1312,7 +1462,7 @@ export default function ProductPage() {
                 </div>
 
                 <div className="mt-5 rounded-xl border border-sidebar-border bg-[#f7f5f2] px-4 py-3 text-sm text-subtle-text">
-                  Language: <span className="font-medium text-body-text">{publishLanguage === "en" ? "English (region)" : publishLanguage}</span>
+                  Languages: <span className="font-medium text-body-text">English, Vietnamese, Japanese</span>
                 </div>
 
                 <div className="mt-6 flex items-center justify-end gap-3">
@@ -1338,13 +1488,17 @@ export default function ProductPage() {
                           throw new Error("Marketplace client is not ready for web database publish.");
                         }
 
-                        await publishProductToEdge(client, {
+                        const publishResult = await publishProductToEdge(client, {
                           itemId: pendingLocalPublishProduct.id,
-                          language: publishLanguage,
+                          languages: [...EDGE_PUBLISH_LANGUAGES],
+                        });
+                        await waitForPublishCompletion(client, {
+                          operationId: publishResult.operationId,
                         });
                         closeLocalPublishConfirm();
                         setPendingLocalPublishProduct(null);
-                        showMessage("Submitted for web database publish.");
+                        clearMessage();
+                        showToast("Submitted for web database publish.");
                       } catch (error) {
                         showMessage(getErrorMessage(error, "Unable to submit for web database publish."), "destructive");
                       } finally {
@@ -1372,7 +1526,39 @@ export default function ProductPage() {
         onPreviousPage={handlePreviousPage}
         onNextPage={handleNextPage}
         onEditRow={handleOpenUpdateModal}
+        onDeleteRow={handleOpenDeleteConfirm}
       />
+
+      {isDeleteConfirmOpen && pendingDeleteProduct ? (
+        <div className="fixed inset-0 z-[70] flex items-start justify-center bg-black/35 px-4 py-16">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-[0_20px_60px_rgba(15,23,42,0.25)]">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-semibold text-body-text">Delete Product</h2>
+                <p className="mt-1 text-sm text-subtle-text">
+                  Delete <span className="font-medium text-body-text">{pendingDeleteProduct.modelName}</span> and publish the change to Edge?
+                </p>
+              </div>
+              <Button type="button" variant="ghost" size="icon-sm" onClick={closeDeleteConfirm} disabled={isDeletingProduct}>
+                <Icon path={mdi.mdiClose} className="h-4 w-4" />
+              </Button>
+            </div>
+
+            <div className="mt-5 rounded-xl border border-sidebar-border bg-[#f7f5f2] px-4 py-3 text-sm text-subtle-text">
+              Languages: <span className="font-medium text-body-text">English, Vietnamese, Japanese</span>
+            </div>
+
+            <div className="mt-6 flex items-center justify-end gap-3">
+              <Button type="button" variant="outline" onClick={closeDeleteConfirm} disabled={isDeletingProduct}>
+                Cancel
+              </Button>
+              <Button type="button" colorScheme="danger" onClick={() => void handleDeleteProduct()} disabled={isDeletingProduct}>
+                {isDeletingProduct ? <BlokLoader label="Deleting..." /> : "Confirm Delete"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

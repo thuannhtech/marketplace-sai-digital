@@ -19,6 +19,7 @@ export interface CreateProductPayload {
 
 export interface UpdateProductPayload extends CreateProductPayload {
   id: string;
+  itemId?: string;
   ordercloud_id?: string;
 }
 
@@ -54,7 +55,7 @@ export async function createProductWithWorkato(payload: CreateProductPayload) {
   });
 
   try {
-    const response = await client.post<WorkatoCreateProductResponse>("create-product-v1/create-product", payload);
+    const response = await client.post<WorkatoCreateProductResponse>("product-v1/create-product", payload);
     return response.data;
   } catch (error) {
     if (axios.isAxiosError(error)) {
@@ -98,7 +99,7 @@ export async function updateProductWithWorkato(payload: UpdateProductPayload) {
   });
 
   try {
-    const response = await client.put<WorkatoUpdateProductResponse>("update-product-v1/update-product", payload);
+    const response = await client.put<WorkatoUpdateProductResponse>("product-v1/update-product", payload);
     return response.data;
   } catch (error) {
     if (axios.isAxiosError(error)) {

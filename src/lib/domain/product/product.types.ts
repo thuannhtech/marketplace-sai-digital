@@ -6,6 +6,7 @@ export interface ProductRow {
   price: number;
   quantity: number;
   status: string;
+  createdDate?: string;
   mediaItemIds?: string[];
 }
 
