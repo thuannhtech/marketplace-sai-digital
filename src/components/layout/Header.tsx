@@ -7,6 +7,8 @@ import { Separator } from "@/components/ui/separator";
 
 const routeMap: Record<string, string> = {
   "/product": "Product Listing",
+  "/orders": "Order Listing",
+  "/customers": "Customer Listing",
 };
 
 export function Header() {

@@ -25,4 +25,24 @@ export const siteNavigationGroups: SiteNavigationGroup[] = [
       },
     ],
   },
+  {
+    title: "Orders",
+    items: [
+      {
+        title: "Order Listing",
+        url: "/orders",
+        icon: mdi.mdiClipboardListOutline,
+      },
+    ],
+  },
+  {
+    title: "Customers",
+    items: [
+      {
+        title: "Customer Listing",
+        url: "/customers",
+        icon: mdi.mdiAccountMultipleOutline,
+      },
+    ],
+  },
 ];
