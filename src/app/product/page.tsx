@@ -22,10 +22,12 @@ import { createProduct, updateProduct } from "@/src/lib/api/products-api";
 import { CreateProductBody, CreateProductImage, ProductRow } from "@/src/lib/domain/product/product.types";
 import {
   deleteProductFromGraph,
+  fetchMarketplaceProductById,
   fetchMarketplaceProducts,
   getMediaItemById,
   listMediaLibraryItems,
   publishProductToEdge,
+  updateProductNeverPublishInGraph,
   updateProductStatusInGraph,
   uploadImageToMediaLibrary,
   waitForPublishCompletion,
@@ -34,19 +36,28 @@ import { useMarketplace } from "@/src/providers/MarketplaceProvider";
 
 const PAGE_SIZE = 10;
 const STATUS_ALL = "all";
-const STATUS_APPROVE = "approve";
+const STATUS_COMPLETE = "complete";
 const STATUS_DRAFT = "draft";
-const STATUS_AWAITING_APPROVAL = "awaiting approval";
-const STATUS_OPTIONS = [STATUS_ALL, STATUS_APPROVE, STATUS_DRAFT, STATUS_AWAITING_APPROVAL] as const;
+const STATUS_OPTIONS = [STATUS_ALL, STATUS_DRAFT, STATUS_COMPLETE] as const;
+const DEFAULT_PRODUCT_LANGUAGE = "en";
+const PRODUCT_LANGUAGE_OPTIONS = [
+  { value: "en", label: "English" },
+  { value: "ja-JP", label: "Japanese" },
+  { value: "vi-VN", label: "Vietnamese" },
+  { value: "es-MX", label: "Spanish (Mexico)" },
+  { value: "fr-FR", label: "French" },
+  { value: "ko-KR", label: "Korean" },
+] as const;
 const PRODUCT_FOLDER_ITEM_ID = "{3F757534-28A6-43F3-9DEA-6DF92C6FFCC2}";
 const MEDIA_LIBRARY_FOLDER_ID = "{FE08FD99-630B-4A0D-94D7-8767562AA0FC}";
 /** Experience Edge `item(path: …)` for `ListMediaUrls` (public `url.url` on children). Override via env. */
 const MEDIA_LIBRARY_EDGE_FOLDER_PATH = "/sitecore/media library/Project/sai-sitecore/sai-sitecore";
-const EDGE_PUBLISH_LANGUAGES = ["en", "vi", "ja-JP"] as const;
+const EDGE_PUBLISH_LANGUAGES = ["en", "ja-JP", "vi-VN", "es-MX", "fr-FR", "ko-KR"] as const;
 type AlertVariant = "default" | "destructive";
 type ToastVariant = "success" | "error";
 
 const DEFAULT_CREATE_FORM: CreateProductBody = {
+  language: DEFAULT_PRODUCT_LANGUAGE,
   model_name: "",
   desc: "",
   category: "",
@@ -65,22 +76,27 @@ function formatPrice(value: number) {
 
 function normalizeStatus(status: string): string {
   const value = status.trim().toLowerCase();
-  if (value === "approved" || value === "approve") return STATUS_APPROVE;
+  if (value === "approved" || value === "approve" || value === "complete") return STATUS_COMPLETE;
   if (value === "draft") return STATUS_DRAFT;
-  if (value === "awaiting approval" || value === "awaiting_approval") return STATUS_AWAITING_APPROVAL;
   return STATUS_DRAFT;
 }
 
 function getStatusBadgeColor(status: string): "success" | "warning" | "primary" | "neutral" {
   const normalizedStatus = normalizeStatus(status);
-  if (normalizedStatus === STATUS_APPROVE) return "success";
-  if (normalizedStatus === STATUS_AWAITING_APPROVAL) return "warning";
+  if (normalizedStatus === STATUS_COMPLETE) return "success";
   if (normalizedStatus === STATUS_DRAFT) return "primary";
   return "neutral";
 }
 
 function getStatusLabel(status: string): string {
   return normalizeStatus(status).toUpperCase();
+}
+
+function getProductLanguageLabel(language: string): string {
+  return (
+    PRODUCT_LANGUAGE_OPTIONS.find((option) => option.value === language)?.label ??
+    language
+  );
 }
 
 function getErrorMessage(error: unknown, fallback: string): string {
@@ -211,6 +227,8 @@ interface PendingLocalPublishProduct {
 interface PendingDeleteProduct {
   id: string;
   modelName: string;
+  ordercloudId?: string;
+  language: string;
 }
 
 interface ToastState {
@@ -620,13 +638,17 @@ function extractMutationProductId(payload: unknown): string | undefined {
 export default function ProductPage() {
   const { client, isInitialized, isLoading } = useMarketplace();
   const [rows, setRows] = useState<ProductRow[]>([]);
-  const [keyword, setKeyword] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState("");
   const [modelFilter, setModelFilter] = useState("");
-  const [languageFilter, setLanguageFilter] = useState("all");
+  const [pendingModelFilter, setPendingModelFilter] = useState("");
+  const [languageFilter, setLanguageFilter] = useState(DEFAULT_PRODUCT_LANGUAGE);
+  const [pendingLanguageFilter, setPendingLanguageFilter] = useState(DEFAULT_PRODUCT_LANGUAGE);
   const [statusFilter, setStatusFilter] = useState(STATUS_ALL);
+  const [pendingStatusFilter, setPendingStatusFilter] = useState(STATUS_ALL);
   const [currentPage, setCurrentPage] = useState(1);
   const [isFetching, setIsFetching] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+  const [isFiltering, setIsFiltering] = useState(false);
+  const [isSwitchingEditLanguage, setIsSwitchingEditLanguage] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<ProductRow | null>(null);
@@ -652,11 +674,13 @@ export default function ProductPage() {
   const productImagesInputRef = useRef<HTMLInputElement>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isCreateModalBusy =
-    isCreating || isProcessingImages || isUploadingToMediaLibrary || isMediaLibraryLoading;
+    isCreating || isProcessingImages || isUploadingToMediaLibrary || isMediaLibraryLoading || isSwitchingEditLanguage;
   const hasCreatedPendingPublish = !editingProduct && Boolean(pendingLocalPublishProduct?.id);
   const canShowPublishActions =
     Boolean(pendingLocalPublishProduct) &&
     (!editingProduct || normalizeStatus(editingProduct.status) === STATUS_DRAFT);
+  const selectedProductLanguageLabel = getProductLanguageLabel(createForm.language);
+  const canEditPriceAndQuantity = !editingProduct || createForm.language === DEFAULT_PRODUCT_LANGUAGE;
 
   function showMessage(text: string, variant: AlertVariant = "default") {
     setMessageVariant(variant);
@@ -730,6 +754,7 @@ export default function ProductPage() {
       modelName: product.modelName,
     });
     setCreateForm({
+      language: product.language || DEFAULT_PRODUCT_LANGUAGE,
       model_name: product.modelName,
       desc: product.description,
       category: "",
@@ -745,11 +770,78 @@ export default function ProductPage() {
     await syncSelectedMediaItems(mediaItemIds);
   }
 
+  async function handleEditLanguageChange(language: string) {
+    if (!editingProduct || !client || !isInitialized) return;
+
+    setIsSwitchingEditLanguage(true);
+    clearMessage();
+    try {
+      const localizedProduct = await fetchMarketplaceProductById(client, {
+        itemId: editingProduct.id,
+        language,
+      });
+
+      if (!localizedProduct) {
+        throw new Error(`No product data found for language ${language}.`);
+      }
+
+      let fallbackEnProduct: ProductRow | null = null;
+      const needsEnglishFallback =
+        language !== DEFAULT_PRODUCT_LANGUAGE &&
+        (
+          localizedProduct.price === 0 ||
+          localizedProduct.quantity === 0 ||
+          !localizedProduct.ordercloud_id ||
+          localizedProduct.ordercloud_id === "N/A"
+        );
+
+      if (needsEnglishFallback) {
+        fallbackEnProduct = await fetchMarketplaceProductById(client, {
+          itemId: editingProduct.id,
+          language: DEFAULT_PRODUCT_LANGUAGE,
+        });
+      }
+
+      const resolvedPrice =
+        localizedProduct.price === 0 && fallbackEnProduct ? fallbackEnProduct.price : localizedProduct.price;
+      const resolvedQuantity =
+        localizedProduct.quantity === 0 && fallbackEnProduct ? fallbackEnProduct.quantity : localizedProduct.quantity;
+      const resolvedOrdercloudId =
+        (!localizedProduct.ordercloud_id || localizedProduct.ordercloud_id === "N/A") && fallbackEnProduct
+          ? fallbackEnProduct.ordercloud_id
+          : localizedProduct.ordercloud_id;
+
+      setEditingProduct((prev) =>
+        prev
+          ? { ...prev, ...localizedProduct, language, ordercloud_id: resolvedOrdercloudId }
+          : prev
+      );
+      setCreateForm((prev) => ({
+        ...prev,
+        language,
+        model_name: localizedProduct.modelName,
+        desc: localizedProduct.description,
+        price: resolvedPrice,
+        quantity: resolvedQuantity,
+      }));
+
+      const mediaItemIds = localizedProduct.mediaItemIds ?? [];
+      setSelectedMediaItemIds(mediaItemIds);
+      await syncSelectedMediaItems(mediaItemIds);
+    } catch (error) {
+      showMessage(getErrorMessage(error, "Unable to load product for selected language."), "destructive");
+    } finally {
+      setIsSwitchingEditLanguage(false);
+    }
+  }
+
   function handleOpenDeleteConfirm(product: ProductRow) {
     clearMessage();
     setPendingDeleteProduct({
       id: product.id,
       modelName: product.modelName,
+      ordercloudId: product.ordercloud_id,
+      language: product.language || DEFAULT_PRODUCT_LANGUAGE,
     });
     setIsDeleteConfirmOpen(true);
   }
@@ -884,17 +976,29 @@ export default function ProductPage() {
 
   const hasLoadedMediaLibraryOptions = mediaLibraryOptions.length > 0;
 
-  async function handleLoadProducts({ quiet = false }: { quiet?: boolean } = {}) {
+  async function handleLoadProducts({
+    quiet = false,
+    language,
+    loadingMode,
+  }: {
+    quiet?: boolean;
+    language?: string;
+    loadingMode?: "search" | "filter" | "load";
+  } = {}) {
     if (!client) {
       if (!quiet) showMessage("Marketplace client not ready.", "destructive");
       return;
     }
 
     setIsFetching(true);
+    if (loadingMode === "search") setIsSearching(true);
+    if (loadingMode === "filter") setIsFiltering(true);
     if (!quiet) clearMessage();
 
     try {
-      const data = await fetchMarketplaceProducts(client);
+      const data = await fetchMarketplaceProducts(client, {
+        language: language?.trim() || languageFilter,
+      });
       setRows(data);
       setCurrentPage(1);
       if (!quiet) showMessage(`Loaded ${data.length} products from GraphQL.`);
@@ -904,7 +1008,20 @@ export default function ProductPage() {
       }
     } finally {
       setIsFetching(false);
+      if (loadingMode === "search") setIsSearching(false);
+      if (loadingMode === "filter") setIsFiltering(false);
     }
+  }
+
+  function handleSearchSubmit() {
+    setModelFilter(pendingModelFilter);
+    void handleLoadProducts({ language: languageFilter, loadingMode: "search" });
+  }
+
+  function handleFilterSubmit() {
+    setLanguageFilter(pendingLanguageFilter);
+    setStatusFilter(pendingStatusFilter);
+    void handleLoadProducts({ language: pendingLanguageFilter, loadingMode: "filter" });
   }
 
   async function handleCreateProduct() {
@@ -968,6 +1085,7 @@ export default function ProductPage() {
         await updateProductStatusInGraph(client, {
           itemId: editingProduct.id,
           status: "Draft",
+          language: createForm.language,
         });
         setEditingProduct((prev) => (prev ? { ...prev, status: STATUS_DRAFT } : prev));
         setPendingLocalPublishProduct({
@@ -1019,16 +1137,36 @@ export default function ProductPage() {
     setIsDeletingProduct(true);
     clearMessage();
     try {
-      await deleteProductFromGraph(client, {
+      if (deletingProduct.ordercloudId && deletingProduct.ordercloudId !== "N/A") {
+        const orderCloudDeleteResponse = await fetch(
+          `/api/ordercloud/products/${encodeURIComponent(deletingProduct.ordercloudId)}`,
+          { method: "DELETE" },
+        );
+        const orderCloudDeleteData = (await orderCloudDeleteResponse.json().catch(() => ({}))) as {
+          error?: string;
+        };
+
+        if (!orderCloudDeleteResponse.ok) {
+          throw new Error(orderCloudDeleteData.error || "Unable to delete product from OrderCloud.");
+        }
+      }
+
+      await updateProductNeverPublishInGraph(client, {
         itemId: deletingProduct.id,
+        language: languageFilter,
+        value: true,
       });
       const publishResult = await publishProductToEdge(client, {
-        itemId: PRODUCT_FOLDER_ITEM_ID,
-        languages: [...EDGE_PUBLISH_LANGUAGES],
+        itemId: deletingProduct.id,
+        languages: [languageFilter],
         publishSubItems: false,
+        publishRelatedItems: false,
       });
       await waitForPublishCompletion(client, {
         operationId: publishResult.operationId,
+      });
+      await deleteProductFromGraph(client, {
+        itemId: deletingProduct.id,
       });
 
       if (editingProduct?.id === deletingProduct.id) {
@@ -1049,32 +1187,20 @@ export default function ProductPage() {
   }
 
   const visibleRows = useMemo(() => {
-    const normalizedKeyword = keyword.trim().toLowerCase();
-    const normalizedCategory = categoryFilter.trim().toLowerCase();
     const normalizedModel = modelFilter.trim().toLowerCase();
 
     const filteredRows = rows.filter((row) => {
-      const matchesKeyword =
-        !normalizedKeyword ||
-        row.modelName.toLowerCase().includes(normalizedKeyword) ||
-        row.description.toLowerCase().includes(normalizedKeyword) ||
-        row.ordercloud_id.toLowerCase().includes(normalizedKeyword);
-      const matchesCategory =
-        !normalizedCategory || row.description.toLowerCase().includes(normalizedCategory);
       const matchesModel = !normalizedModel || row.modelName.toLowerCase().includes(normalizedModel);
-
       const normalizedStatus = normalizeStatus(row.status);
       const matchesStatus = statusFilter === STATUS_ALL || normalizedStatus === statusFilter;
-      const matchesLanguage = languageFilter === "all" || languageFilter === "english";
 
-      return matchesKeyword && matchesCategory && matchesModel && matchesStatus && matchesLanguage;
+      return matchesModel && matchesStatus;
     });
 
     return [...filteredRows].sort(
       (left, right) => getCreatedDateTimestamp(right.createdDate) - getCreatedDateTimestamp(left.createdDate),
     );
-  }, [categoryFilter, keyword, languageFilter, modelFilter, rows, statusFilter]);
-
+  }, [modelFilter, rows, statusFilter]);
   const totalPages = Math.max(1, Math.ceil(visibleRows.length / PAGE_SIZE));
   const pageStartIndex = (currentPage - 1) * PAGE_SIZE;
   const paginatedRows = visibleRows.slice(pageStartIndex, pageStartIndex + PAGE_SIZE);
@@ -1093,7 +1219,7 @@ export default function ProductPage() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [categoryFilter, keyword, languageFilter, modelFilter, statusFilter]);
+  }, [modelFilter, statusFilter]);
 
   useEffect(() => {
     if (!hasAutoLoaded && isInitialized && client) {
@@ -1150,33 +1276,6 @@ export default function ProductPage() {
       <Card className="border-sidebar-border">
         <CardContent className="space-y-4 p-4">
           <div className="flex flex-col gap-3 md:flex-row md:items-center">
-            <div className="relative w-full md:max-w-xs">
-              <Icon
-                path={mdi.mdiMagnify}
-                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-subtle-text"
-              />
-              <Input
-                className="pl-9"
-                placeholder="Search by keyword"
-                value={keyword}
-                onChange={(event) => setKeyword(event.target.value)}
-              />
-            </div>
-            <Button
-              variant="outline"
-              className="border-sidebar-border"
-              onClick={() => void handleLoadProducts()}
-              disabled={isLoading || isFetching || !isInitialized}
-            >
-              {isFetching ? (
-                <BlokLoader label="Searching..." />
-              ) : (
-                <>
-                  <Icon path={mdi.mdiDatabaseSearch} className="mr-2 h-4 w-4" />
-                  Search
-                </>
-              )}
-            </Button>
             <div className="md:ml-auto">
               <Button onClick={handleOpenCreateModal}>
                 <Icon path={mdi.mdiPlus} className="mr-2 h-4 w-4" />
@@ -1185,59 +1284,82 @@ export default function ProductPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
-            <div className="space-y-1">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center">
+            <div className="relative w-full md:max-w-xs">
+              <Icon
+                path={mdi.mdiMagnify}
+                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-subtle-text"
+              />
+              <Input
+                className="pl-9"
+                placeholder="Search by model name"
+                value={pendingModelFilter}
+                onChange={(event) => setPendingModelFilter(event.target.value)}
+              />
+            </div>
+            <Button
+              variant="outline"
+              className="border-sidebar-border"
+              onClick={handleSearchSubmit}
+              disabled={isLoading || isSearching || !isInitialized}
+            >
+              {isSearching ? (
+                <BlokLoader label="Searching..." />
+              ) : (
+                <>
+                  <Icon path={mdi.mdiDatabaseSearch} className="mr-2 h-4 w-4" />
+                  Search
+                </>
+              )}
+            </Button>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-6 lg:grid-cols-12">
+            <div className="space-y-1 md:col-span-2 lg:col-span-3">
               <p className="text-xs text-subtle-text">Language</p>
               <select
                 className="border-input focus:border-primary focus:ring-primary h-10 w-full rounded-md border bg-body-bg px-3 text-sm focus:ring-1 focus:outline-none"
-                value={languageFilter}
-                onChange={(event) => setLanguageFilter(event.target.value)}
+                value={pendingLanguageFilter}
+                onChange={(event) => setPendingLanguageFilter(event.target.value)}
               >
-                <option value="all">All languages</option>
-                <option value="english">English (region)</option>
-              </select>
-            </div>
-            <div className="space-y-1">
-              <p className="text-xs text-subtle-text">Status</p>
-              <select
-                className="border-input focus:border-primary focus:ring-primary h-10 w-full rounded-md border bg-body-bg px-3 text-sm capitalize focus:ring-1 focus:outline-none"
-                value={statusFilter}
-                onChange={(event) => setStatusFilter(event.target.value)}
-              >
-                {STATUS_OPTIONS.map((status) => (
-                  <option key={status} value={status}>
-                    {status === STATUS_ALL ? "All status" : status.toUpperCase()}
+                {PRODUCT_LANGUAGE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
                   </option>
                 ))}
               </select>
             </div>
-            <div className="flex items-end gap-2">
+
+            <div className="space-y-1 md:col-span-2 lg:col-span-3">
+              <p className="text-xs text-subtle-text">Status</p>
+              <select
+                className="border-input focus:border-primary focus:ring-primary h-10 w-full rounded-md border bg-body-bg px-3 text-sm capitalize focus:ring-1 focus:outline-none"
+                value={pendingStatusFilter}
+                onChange={(event) => setPendingStatusFilter(event.target.value)}
+              >
+                {STATUS_OPTIONS.map((status) => (
+                  <option key={status} value={status}>
+                    {status === STATUS_ALL ? "All status" : status === STATUS_COMPLETE ? "COMPLETE" : status.toUpperCase()}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex items-end md:col-span-2 lg:col-span-2">
               <Button
                 variant="outline"
                 className="border-sidebar-border"
-                onClick={() => void handleLoadProducts()}
-                disabled={isLoading || isFetching || !isInitialized}
+                onClick={handleFilterSubmit}
+                disabled={isLoading || isFiltering || !isInitialized}
               >
-                {isFetching ? (
+                {isFiltering ? (
                   <BlokLoader label="Filtering..." />
                 ) : (
                   <>
-                    <Icon path={mdi.mdiDatabaseSearch} className="mr-2 h-4 w-4" />
+                    <Icon path={mdi.mdiFilterOutline} className="mr-2 h-4 w-4" />
                     Filter
                   </>
                 )}
-              </Button>
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  setKeyword("");
-                  setStatusFilter(STATUS_ALL);
-                  setCategoryFilter("");
-                  setModelFilter("");
-                  setLanguageFilter("all");
-                }}
-              >
-                Clear
               </Button>
             </div>
           </div>
@@ -1269,6 +1391,8 @@ export default function ProductPage() {
                       ? editingProduct
                         ? "Saving changes..."
                         : "Creating product..."
+                      : isSwitchingEditLanguage
+                        ? "Loading product..."
                       : isUploadingToMediaLibrary
                         ? "Uploading images..."
                         : isMediaLibraryLoading
@@ -1292,7 +1416,7 @@ export default function ProductPage() {
               <div className="rounded-2xl border border-sidebar-border bg-white p-4 shadow-[0_10px_25px_rgba(15,23,42,0.06)]">
                 <div className="flex flex-col gap-3 md:flex-row md:items-center">
                   <div className="rounded-md border border-sidebar-border bg-[#f7f5f2] px-3 py-2 text-sm text-subtle-text md:max-w-md">
-                    Publish languages: English, Vietnamese, Japanese
+                    Publish language: {selectedProductLanguageLabel}
                   </div>
                   <div className="md:ml-auto">
                     <Button
@@ -1306,6 +1430,34 @@ export default function ProductPage() {
                 </div>
               </div>
             ) : null}
+            {
+              editingProduct &&
+              <div className="space-y-1">
+              <label className="text-sm font-medium text-body-text" htmlFor="product-language">
+                Language
+              </label>
+              <select
+                id="product-language"
+                className="border-input focus:border-primary focus:ring-primary h-10 w-full rounded-md border bg-body-bg px-3 text-sm focus:ring-1 focus:outline-none"
+                value={createForm.language}
+                onChange={(event) => {
+                  const nextLanguage = event.target.value;
+                  if (editingProduct) {
+                    void handleEditLanguageChange(nextLanguage);
+                    return;
+                  }
+                  setCreateForm((prev) => ({ ...prev, language: nextLanguage }));
+                }}
+                disabled={isCreateModalBusy || !editingProduct}
+              >
+                {PRODUCT_LANGUAGE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            }
 
             <div className="space-y-1">
               <label className="text-sm font-medium text-body-text" htmlFor="model-name">
@@ -1317,7 +1469,6 @@ export default function ProductPage() {
                 onChange={(event) =>
                   setCreateForm((prev) => ({ ...prev, model_name: event.target.value }))
                 }
-                disabled={Boolean(editingProduct)}
               />
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -1334,6 +1485,7 @@ export default function ProductPage() {
                   onChange={(event) =>
                     setCreateForm((prev) => ({ ...prev, price: Number(event.target.value) || 0 }))
                   }
+                  disabled={!canEditPriceAndQuantity}
                 />
               </div>
               <div className="space-y-1">
@@ -1349,6 +1501,7 @@ export default function ProductPage() {
                   onChange={(event) =>
                     setCreateForm((prev) => ({ ...prev, quantity: Number(event.target.value) || 0 }))
                   }
+                  disabled={!canEditPriceAndQuantity}
                 />
               </div>
             </div>
@@ -1488,7 +1641,7 @@ export default function ProductPage() {
                 </div>
 
                 <div className="mt-5 rounded-xl border border-sidebar-border bg-[#f7f5f2] px-4 py-3 text-sm text-subtle-text">
-                  Languages: <span className="font-medium text-body-text">English, Vietnamese, Japanese</span>
+                  Language: <span className="font-medium text-body-text">{selectedProductLanguageLabel}</span>
                 </div>
 
                 <div className="mt-6 flex items-center justify-end gap-3">
@@ -1514,6 +1667,11 @@ export default function ProductPage() {
                           throw new Error("Marketplace client is not ready for web database publish.");
                         }
 
+                        await updateProductStatusInGraph(client, {
+                          itemId: pendingLocalPublishProduct.id,
+                          status: "Approved",
+                          language: createForm.language,
+                        });
                         const publishResult = await publishProductToEdge(client, {
                           itemId: pendingLocalPublishProduct.id,
                           languages: [...EDGE_PUBLISH_LANGUAGES],
@@ -1521,6 +1679,12 @@ export default function ProductPage() {
                         await waitForPublishCompletion(client, {
                           operationId: publishResult.operationId,
                         });
+                        setEditingProduct((prev) => (prev ? { ...prev, status: STATUS_COMPLETE } : prev));
+                        setRows((prev) =>
+                          prev.map((row) =>
+                            row.id === pendingLocalPublishProduct.id ? { ...row, status: STATUS_COMPLETE } : row
+                          ),
+                        );
                         closeLocalPublishConfirm();
                         setPendingLocalPublishProduct(null);
                         clearMessage();
@@ -1571,7 +1735,7 @@ export default function ProductPage() {
             </div>
 
             <div className="mt-5 rounded-xl border border-sidebar-border bg-[#f7f5f2] px-4 py-3 text-sm text-subtle-text">
-              Languages: <span className="font-medium text-body-text">English, Vietnamese, Japanese</span>
+              Language: <span className="font-medium text-body-text">{getProductLanguageLabel(pendingDeleteProduct.language)}</span>
             </div>
 
             <div className="mt-6 flex items-center justify-end gap-3">

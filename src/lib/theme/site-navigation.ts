@@ -45,4 +45,14 @@ export const siteNavigationGroups: SiteNavigationGroup[] = [
       },
     ],
   },
+  {
+    title: "Promotions",
+    items: [
+      {
+        title: "Promotion Listing",
+        url: "/promotions",
+        icon: mdi.mdiTicketPercentOutline,
+      },
+    ],
+  },
 ];

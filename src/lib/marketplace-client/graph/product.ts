@@ -20,9 +20,12 @@ const marketplaceProductsQuery = `
 const sitecoreProductFolderId = "{3F757534-28A6-43F3-9DEA-6DF92C6FFCC2}";
 const SITECORE_PRODUCTS_FETCH_LIMIT = 100;
 
-const sitecoreProductsQuery = `
+function buildSitecoreProductsQuery(language?: string): string {
+  const normalizedLanguage = language?.trim() || "en";
+
+  return `
   query {
-    item(where: { database: "master", itemId: "${sitecoreProductFolderId}" }) {
+    item(where: { database: "master", itemId: "${sitecoreProductFolderId}", language: "${normalizedLanguage.replace(/"/g, '\\"')}" }) {
       children(
         first: ${SITECORE_PRODUCTS_FETCH_LIMIT}
       ) {
@@ -40,15 +43,41 @@ const sitecoreProductsQuery = `
       }
     }
   }`;
+}
+
+function buildSitecoreProductByIdQuery(itemId: string, language?: string): string {
+  const normalizedLanguage = language?.trim() || "en";
+  const normalizedItemId = itemId.trim().replace(/"/g, '\\"');
+
+  return `
+  query {
+    item(where: { database: "master", itemId: "${normalizedItemId}", language: "${normalizedLanguage.replace(/"/g, '\\"')}" }) {
+      id: itemId
+      created_date: field(name: "__Created") { value }
+      model_name: field(name: "ModelName") { value }
+      description: field(name: "Description") { value }
+      price: field(name: "Price") { value }
+      ordercloud_id: field(name: "OrderCloudProductId") { value }
+      quantity: field(name: "Quantity") { value }
+      status: field(name: "Status") { value }
+      media_item_ids: field(name: "Images") { value }
+    }
+  }`;
+}
 
 const publishProductToEdgeMutation = `
-  mutation PublishProductToEdge($itemId: ID!, $languages: [String!]!, $publishSubItems: Boolean!) {
+  mutation PublishProductToEdge(
+    $itemId: ID!,
+    $languages: [String!]!,
+    $publishSubItems: Boolean!,
+    $publishRelatedItems: Boolean!
+  ) {
     publishItem(input: {
       sourceDatabase: "master",
       targetDatabases: ["experienceedge"],
       rootItemIds: [$itemId],
       publishSubItems: $publishSubItems,
-      publishRelatedItems: false,
+      publishRelatedItems: $publishRelatedItems,
       publishItemMode: SMART,
       languages: $languages
     }) {
@@ -86,6 +115,24 @@ const updateProductStatusMutation = `
   }
 `;
 
+const updateProductNeverPublishMutation = `
+  mutation UpdateProductNeverPublish($itemId: ID!, $language: String!, $value: String!) {
+    updateItem(
+      input: {
+        database: "master"
+        itemId: $itemId
+        language: $language
+        fields: [{ name: "__Never publish", value: $value, reset: false }]
+      }
+    ) {
+      item {
+        itemId
+        neverPublish: field(name: "__Never publish") { value }
+      }
+    }
+  }
+`;
+
 const publishingStatusQuery = `
   query PublishingStatus($publishingOperationId: String!) {
     publishingStatus(publishingOperationId: $publishingOperationId) {
@@ -114,6 +161,8 @@ function parseMediaItemIds(value: unknown): string[] {
 function normalizeProduct(value: Record<string, unknown>, index: number): ProductRow {
   return {
     id: String(value.id ?? `row-${index}`),
+    language: typeof value.language === "string" ? value.language : undefined,
+    version: typeof value.version === "number" ? value.version : undefined,
     modelName: String(value.model_name ?? value.name ?? "N/A"),
     description: String(value.description ?? "N/A"),
     ordercloud_id: String(value.ordercloud_id ?? "N/A"),
@@ -165,6 +214,8 @@ function mapSitecoreItems(items: unknown[]): ProductRow[] {
 
       return {
         id: String(item.id ?? `row-${index}`),
+        language: typeof item.language === "string" ? item.language : undefined,
+        version: typeof item.version === "number" ? item.version : undefined,
         modelName: String(modelField?.value ?? "N/A"),
         description: String(descriptionField?.value ?? "N/A"),
         ordercloud_id: String(ordercloud_idField?.value ?? "N/A"),
@@ -287,6 +338,36 @@ function extractUpdatedProductStatus(response: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value : undefined;
 }
 
+function extractUpdatedNeverPublish(response: unknown): string | undefined {
+  if (!response || typeof response !== "object") return undefined;
+
+  const root = response as Record<string, unknown>;
+  const data =
+    root.data && typeof root.data === "object"
+      ? (root.data as Record<string, unknown>)
+      : undefined;
+  const nestedData =
+    data?.data && typeof data.data === "object"
+      ? (data.data as Record<string, unknown>)
+      : undefined;
+  const source = nestedData ?? data;
+  const updateItem =
+    source?.updateItem && typeof source.updateItem === "object"
+      ? (source.updateItem as Record<string, unknown>)
+      : undefined;
+  const item =
+    updateItem?.item && typeof updateItem.item === "object"
+      ? (updateItem.item as Record<string, unknown>)
+      : undefined;
+  const neverPublishField =
+    item?.neverPublish && typeof item.neverPublish === "object"
+      ? (item.neverPublish as Record<string, unknown>)
+      : undefined;
+  const value = neverPublishField?.value;
+
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+}
+
 interface PublishingStatusResult {
   state?: string;
   isDone: boolean;
@@ -326,8 +407,12 @@ function delay(ms: number): Promise<void> {
   });
 }
 
-export async function fetchMarketplaceProducts(client: ClientSDK): Promise<ProductRow[]> {
+export async function fetchMarketplaceProducts(
+  client: ClientSDK,
+  params?: { language?: string },
+): Promise<ProductRow[]> {
   const queryClient = asMarketplaceSdkClient(client);
+  const sitecoreProductsQuery = buildSitecoreProductsQuery(params?.language);
 
   try {
     const sitecoreContextId = await resolveSitecoreContextId(queryClient);
@@ -408,9 +493,44 @@ export async function fetchMarketplaceProducts(client: ClientSDK): Promise<Produ
   }
 }
 
+export async function fetchMarketplaceProductById(
+  client: ClientSDK,
+  params: { itemId: string; language?: string },
+): Promise<ProductRow | null> {
+  const itemId = params.itemId.trim();
+  if (!itemId) {
+    throw new Error("Missing itemId for product query.");
+  }
+
+  const response = await executeAuthoringGraphql(client, {
+    query: buildSitecoreProductByIdQuery(itemId, params.language),
+  });
+
+  if (!response || typeof response !== "object") return null;
+
+  const root = response as Record<string, unknown>;
+  const data =
+    root.data && typeof root.data === "object"
+      ? (root.data as Record<string, unknown>)
+      : undefined;
+  const nestedData =
+    data?.data && typeof data.data === "object"
+      ? (data.data as Record<string, unknown>)
+      : undefined;
+  const source = nestedData ?? data;
+  const item =
+    source?.item && typeof source.item === "object"
+      ? (source.item as Record<string, unknown>)
+      : undefined;
+
+  if (!item) return null;
+
+  return mapSitecoreItems([item])[0] ?? null;
+}
+
 export async function publishProductToEdge(
   client: ClientSDK,
-  params: { itemId: string; languages?: string[]; publishSubItems?: boolean },
+  params: { itemId: string; languages?: string[]; publishSubItems?: boolean; publishRelatedItems?: boolean },
 ): Promise<{ operationId: string }> {
   const itemId = params.itemId.trim();
   if (!itemId) {
@@ -427,6 +547,7 @@ export async function publishProductToEdge(
       itemId,
       languages,
       publishSubItems: params.publishSubItems ?? false,
+      publishRelatedItems: params.publishRelatedItems ?? false,
     },
   });
   const operationId = extractPublishOperationId(response);
@@ -493,6 +614,35 @@ export async function updateProductStatusInGraph(
   }
 
   return { status: updatedStatus };
+}
+
+export async function updateProductNeverPublishInGraph(
+  client: ClientSDK,
+  params: { itemId: string; language?: string; value?: boolean },
+): Promise<{ value: string }> {
+  const itemId = params.itemId.trim();
+  const language = params.language?.trim() || "en";
+  const value = params.value === false ? "0" : "1";
+
+  if (!itemId) {
+    throw new Error("Missing itemId for never publish update.");
+  }
+
+  const response = await executeAuthoringGraphql(client, {
+    query: updateProductNeverPublishMutation,
+    variables: {
+      itemId,
+      language,
+      value,
+    },
+  });
+  const updatedValue = extractUpdatedNeverPublish(response);
+
+  if (!updatedValue) {
+    throw new Error("Update item did not return the __Never publish field value.");
+  }
+
+  return { value: updatedValue };
 }
 
 export async function waitForPublishCompletion(

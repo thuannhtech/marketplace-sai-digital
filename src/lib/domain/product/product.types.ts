@@ -1,5 +1,7 @@
 export interface ProductRow {
   id: string;
+  language?: string;
+  version?: number;
   modelName: string;
   description: string;
   ordercloud_id: string;
@@ -17,6 +19,7 @@ export interface CreateProductImage {
 }
 
 export interface CreateProductBody {
+  language: string;
   model_name: string;
   price_name?: string;
   desc: string;

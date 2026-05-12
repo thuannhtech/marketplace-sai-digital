@@ -145,10 +145,6 @@ export default function CustomerDetailPage() {
     mobile: "",
     companyName: "",
     street1: "",
-    suburb: "",
-    state: "",
-    postcode: "",
-    dpid: "",
     saveAs: "Home" as "Home" | "Business",
     useDefaultBilling: false,
     useDefaultShipping: false,
@@ -247,6 +243,22 @@ export default function CustomerDetailPage() {
   const dobDisplay =
     dobMonth && dobDay ? `${String(dobDay).padStart(2, "0")}/${String(dobMonth).padStart(2, "0")}` : "N/A";
 
+  function resetAddressForm() {
+    setEditingAddressId(null);
+    setAddressError(null);
+    setAddressForm({
+      firstName: "",
+      lastName: "",
+      mobileAreaCode: "+614",
+      mobile: "",
+      companyName: "",
+      street1: "",
+      saveAs: "Home",
+      useDefaultBilling: false,
+      useDefaultShipping: false,
+    });
+  }
+
   async function handleUpdateCustomer() {
     if (!id) return;
     setCustomerUpdateError(null);
@@ -290,13 +302,10 @@ export default function CustomerDetailPage() {
       !addressForm.lastName.trim() ||
       !addressForm.mobileAreaCode.trim() ||
       !addressForm.mobile.trim() ||
-      !addressForm.street1.trim() ||
-      !addressForm.suburb.trim() ||
-      !addressForm.state.trim() ||
-      !addressForm.postcode.trim()
+      !addressForm.street1.trim()
     ) {
       setAddressError(
-        "Please fill all required fields: First Name, Last Name, Mobile, Address Line 1, Suburb, State, and Postcode.",
+        "Please fill all required fields: First Name, Last Name, Mobile, and Address Line 1.",
       );
       return;
     }
@@ -310,10 +319,6 @@ export default function CustomerDetailPage() {
         mobile: addressForm.mobile.trim() || undefined,
         companyName: addressForm.companyName.trim() || undefined,
         street1: addressForm.street1.trim(),
-        suburb: addressForm.suburb.trim() || undefined,
-        state: addressForm.state.trim() || undefined,
-        postcode: addressForm.postcode.trim() || undefined,
-        dpid: addressForm.dpid.trim() || undefined,
         saveAs: addressForm.saveAs,
         useDefaultBilling: addressForm.useDefaultBilling,
         useDefaultShipping: addressForm.useDefaultShipping,
@@ -337,23 +342,7 @@ export default function CustomerDetailPage() {
   }
 
   function openNewAddressDialog() {
-    setEditingAddressId(null);
-    setAddressError(null);
-    setAddressForm({
-      firstName: customer?.FirstName || "",
-      lastName: customer?.LastName || "",
-      mobileAreaCode: "+614",
-      mobile: "",
-      companyName: "",
-      street1: "",
-      suburb: "",
-      state: "",
-      postcode: "",
-      dpid: "",
-      saveAs: "Home",
-      useDefaultBilling: false,
-      useDefaultShipping: false,
-    });
+    resetAddressForm();
     setIsAddressDialogOpen(true);
   }
 
@@ -373,10 +362,6 @@ export default function CustomerDetailPage() {
       mobile: fallbackNumber,
       companyName: String(addr?.CompanyName || ""),
       street1: String(addr?.Street1 || ""),
-      suburb: String(addr?.City || ""),
-      state: String(addr?.State || ""),
-      postcode: String(addr?.Zip || ""),
-      dpid: String(addr?.xp?.DPID || ""),
       saveAs: (addr?.AddressName === "Business" ? "Business" : "Home") as "Home" | "Business",
       useDefaultBilling: Boolean(false),
       useDefaultShipping: Boolean(false),
@@ -549,20 +534,6 @@ export default function CustomerDetailPage() {
             </div>
           </div>
         </CollapsibleSection>
-
-        <CollapsibleSection title="Other Information">
-          <InfoRow label="Opt In?" value={Boolean(customer?.xp?.PersonalInformation?.Marketing)} type="checkbox" />
-          <InfoRow
-            label="Session ID"
-            value={
-              customer?.xp?.SessionID ||
-              customer?.xp?.SessionId ||
-              customer?.xp?.sessionId ||
-              "N/A"
-            }
-          />
-        </CollapsibleSection>
-
         <CollapsibleSection title={`Addresses (${addresses.length})`}>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-subtle-text">{addresses.length ? "" : "No addresses found."}</p>
@@ -611,7 +582,15 @@ export default function CustomerDetailPage() {
         </CollapsibleSection>
       </div>
 
-      <Dialog open={isAddressDialogOpen} onOpenChange={setIsAddressDialogOpen}>
+      <Dialog
+        open={isAddressDialogOpen}
+        onOpenChange={(open) => {
+          setIsAddressDialogOpen(open);
+          if (!open) {
+            resetAddressForm();
+          }
+        }}
+      >
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>
@@ -678,45 +657,6 @@ export default function CustomerDetailPage() {
                 required
                 value={addressForm.street1}
                 onChange={(e) => setAddressForm((p) => ({ ...p, street1: e.target.value }))}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label>
-                Suburb <span className="text-destructive">*</span>
-              </Label>
-              <Input
-                required
-                value={addressForm.suburb}
-                onChange={(e) => setAddressForm((p) => ({ ...p, suburb: e.target.value }))}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>
-                State <span className="text-destructive">*</span>
-              </Label>
-              <Input
-                required
-                value={addressForm.state}
-                onChange={(e) => setAddressForm((p) => ({ ...p, state: e.target.value }))}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>
-                Postcode <span className="text-destructive">*</span>
-              </Label>
-              <Input
-                required
-                value={addressForm.postcode}
-                onChange={(e) => setAddressForm((p) => ({ ...p, postcode: e.target.value }))}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>DPID</Label>
-              <Input
-                value={addressForm.dpid}
-                onChange={(e) => setAddressForm((p) => ({ ...p, dpid: e.target.value }))}
-                disabled
               />
             </div>
 

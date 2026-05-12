@@ -2,8 +2,10 @@ export { asMarketplaceSdkClient } from "./client";
 export { resolveSitecoreContextId } from "./context";
 export {
   deleteProductFromGraph,
+  fetchMarketplaceProductById,
   fetchMarketplaceProducts,
   publishProductToEdge,
+  updateProductNeverPublishInGraph,
   updateProductStatusInGraph,
   waitForPublishCompletion,
 } from "./graph/product";

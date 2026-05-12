@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { startTransition, useEffect, useState, useMemo } from "react";
 import * as mdi from "@mdi/js";
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
@@ -12,7 +12,7 @@ import { getIncomingOrders } from "@/src/app/actions/ordercloud";
 
 const PAGE_SIZE = 10;
 const STATUS_ALL = "all";
-const STATUS_OPTIONS = [STATUS_ALL, "Open", "Completed", "Canceled", "AwaitingApproval", "Declined"] as const;
+const STATUS_OPTIONS = [STATUS_ALL, "Open", "Completed", "Canceled"] as const;
 
 function formatPrice(value: number) {
   return new Intl.NumberFormat("en-US", {
@@ -36,26 +36,14 @@ function formatDate(dateString?: string) {
 function getStatusColor(status?: string) {
   if (!status) return "neutral";
   const s = status.toLowerCase();
-  if (s === "open" || s === "submitted" || s === "awaitingapproval" || s === "processing" || s === "confirmed") return "primary";
-  if (s === "completed" || s === "delivered" || s === "closed") return "success";
-  if (s === "canceled" || s === "declined" || s === "problem" || s === "cancelled") return "danger";
+  if (s === "open") return "primary";
+  if (s === "completed") return "success";
+  if (s === "canceled" || s === "cancelled") return "danger";
   return "neutral";
 }
 
 function getDisplayStatus(order: any) {
-  if (order.xp?.SubStatus) return order.xp.SubStatus;
-  
-  // Mock logic if SubStatus is missing from OrderCloud DB
-  const s = order.Status?.toLowerCase();
-  if (s === "open") {
-    // Both PROCESSING and CONFIRMED map to Open in OrderCloud.
-    // We differentiate by checking if a SAP SaleOrderID has been generated.
-    return order.xp?.SAPSaleOrderID ? "CONFIRMED" : "PROCESSING";
-  }
-  if (s === "completed") return "COMPLETED";
-  if (s === "canceled") return "CANCELLED";
-  
-  return order.Status || "Unknown";
+  return order.Status.toLowerCase() || "Unknown";
 }
 
 function BlokLoader({ label }: { label: string }) {
@@ -77,12 +65,20 @@ export default function OrderListPage() {
 
   // Search and Filter state
   const [keyword, setKeyword] = useState("");
+  const [pendingKeyword, setPendingKeyword] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>(STATUS_ALL);
+  const [pendingStatusFilter, setPendingStatusFilter] = useState<string>(STATUS_ALL);
   const [startDate, setStartDate] = useState("");
+  const [pendingStartDate, setPendingStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  const [pendingEndDate, setPendingEndDate] = useState("");
   const [minPrice, setMinPrice] = useState("");
+  const [pendingMinPrice, setPendingMinPrice] = useState("");
   const [maxPrice, setMaxPrice] = useState("");
+  const [pendingMaxPrice, setPendingMaxPrice] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
+  const [isSearching, setIsSearching] = useState(false);
+  const [isFiltering, setIsFiltering] = useState(false);
 
   async function fetchOrders() {
     setIsLoading(true);
@@ -104,6 +100,28 @@ export default function OrderListPage() {
   useEffect(() => {
     fetchOrders();
   }, []);
+
+  function handleSearchSubmit() {
+    setIsSearching(true);
+    startTransition(() => {
+      setKeyword(pendingKeyword);
+      setCurrentPage(1);
+      setIsSearching(false);
+    });
+  }
+
+  function handleFilterSubmit() {
+    setIsFiltering(true);
+    startTransition(() => {
+      setStatusFilter(pendingStatusFilter);
+      setStartDate(pendingStartDate);
+      setEndDate(pendingEndDate);
+      setMinPrice(pendingMinPrice);
+      setMaxPrice(pendingMaxPrice);
+      setCurrentPage(1);
+      setIsFiltering(false);
+    });
+  }
 
   const visibleOrders = useMemo(() => {
     const normalizedKeyword = keyword.trim().toLowerCase();
@@ -179,17 +197,17 @@ export default function OrderListPage() {
               <Input
                 className="pl-9"
                 placeholder="Search by order number or name"
-                value={keyword}
-                onChange={(event) => setKeyword(event.target.value)}
+                value={pendingKeyword}
+                onChange={(event) => setPendingKeyword(event.target.value)}
               />
             </div>
             <Button
               variant="outline"
               className="border-sidebar-border"
-              onClick={() => fetchOrders()}
-              disabled={isLoading}
+              onClick={handleSearchSubmit}
+              disabled={isLoading || isSearching}
             >
-              {isLoading ? (
+              {isSearching ? (
                 <BlokLoader label="Searching..." />
               ) : (
                 <>
@@ -201,12 +219,12 @@ export default function OrderListPage() {
           </div>
 
           <div className="grid grid-cols-1 gap-3 md:grid-cols-6 lg:grid-cols-12">
-            <div className="space-y-1 md:col-span-2 lg:col-span-3">
+            <div className="space-y-1 md:col-span-2 lg:col-span-2">
               <p className="text-xs text-subtle-text">Status</p>
               <select
                 className="border-input focus:border-primary focus:ring-primary h-10 w-full rounded-md border bg-body-bg px-3 text-sm capitalize focus:ring-1 focus:outline-none"
-                value={statusFilter}
-                onChange={(event) => setStatusFilter(event.target.value)}
+                value={pendingStatusFilter}
+                onChange={(event) => setPendingStatusFilter(event.target.value)}
               >
                 {STATUS_OPTIONS.map((status) => (
                   <option key={status} value={status}>
@@ -216,60 +234,78 @@ export default function OrderListPage() {
               </select>
             </div>
             
-            <div className="space-y-1 md:col-span-2 lg:col-span-4">
+            <div className="space-y-1 md:col-span-2 lg:col-span-3">
               <p className="text-xs text-subtle-text">Date Range</p>
               <div className="flex items-center gap-2">
                 <Input
                   type="date"
-                  className="h-10 text-sm"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
+                  className="h-10 flex-1 min-w-0 text-sm pr-12"
+                  value={pendingStartDate}
+                  onChange={(e) => setPendingStartDate(e.target.value)}
                 />
                 <span className="text-subtle-text">-</span>
                 <Input
                   type="date"
-                  className="h-10 text-sm"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
+                  className="h-10 flex-1 min-w-0 text-sm pr-12"
+                  value={pendingEndDate}
+                  onChange={(e) => setPendingEndDate(e.target.value)}
                 />
               </div>
             </div>
 
-            <div className="space-y-1 md:col-span-2 lg:col-span-4">
-              <p className="text-xs text-subtle-text">Total Price ($)</p>
+            <div className="space-y-1 md:col-span-2 lg:col-span-3">
+              <p className="text-xs text-subtle-text">Total Paid</p>
               <div className="flex items-center gap-2">
                 <Input
                   type="number"
                   placeholder="Min"
-                  className="h-10 text-sm"
-                  value={minPrice}
-                  onChange={(e) => setMinPrice(e.target.value)}
+                  className="h-10 w-24 text-sm"
+                  value={pendingMinPrice}
+                  onChange={(e) => setPendingMinPrice(e.target.value)}
                 />
                 <span className="text-subtle-text">-</span>
                 <Input
                   type="number"
                   placeholder="Max"
-                  className="h-10 text-sm"
-                  value={maxPrice}
-                  onChange={(e) => setMaxPrice(e.target.value)}
+                  className="h-10 w-24 text-sm"
+                  value={pendingMaxPrice}
+                  onChange={(e) => setPendingMaxPrice(e.target.value)}
                 />
-              </div>
-            </div>
-
-            <div className="flex items-end gap-2 md:col-span-6 lg:col-span-1">
+                <Button
+                variant="outline"
+                className="border-sidebar-border"
+                onClick={handleFilterSubmit}
+                disabled={isLoading || isFiltering}
+              >
+                {isFiltering ? (
+                  <BlokLoader label="Filtering..." />
+                ) : (
+                  <>
+                    <Icon path={mdi.mdiFilterOutline} className="mr-2 h-4 w-4" />
+                    Filter
+                  </>
+                )}
+              </Button>
               <Button
                 variant="ghost"
                 onClick={() => {
                   setKeyword("");
+                  setPendingKeyword("");
                   setStatusFilter(STATUS_ALL);
+                  setPendingStatusFilter(STATUS_ALL);
                   setStartDate("");
+                  setPendingStartDate("");
                   setEndDate("");
+                  setPendingEndDate("");
                   setMinPrice("");
+                  setPendingMinPrice("");
                   setMaxPrice("");
+                  setPendingMaxPrice("");
                 }}
               >
                 Clear
               </Button>
+              </div>
             </div>
           </div>
 
@@ -285,14 +321,12 @@ export default function OrderListPage() {
             <table className="w-full min-w-[1000px] text-sm text-left">
               <thead className="bg-muted">
                 <tr className="border-b border-sidebar-border">
-                  <th className="px-4 py-3 font-semibold">Action</th>
                   <th className="px-4 py-3 font-semibold">Order Number</th>
                   <th className="px-4 py-3 font-semibold">Submited Date</th>
                   <th className="px-4 py-3 font-semibold">First Name</th>
                   <th className="px-4 py-3 font-semibold">Last Name</th>
                   <th className="px-4 py-3 font-semibold">Customer</th>
                   <th className="px-4 py-3 font-semibold">Total Paid</th>
-                  <th className="px-4 py-3 font-semibold">Number of items</th>
                   <th className="px-4 py-3 font-semibold">Status</th>
                 </tr>
               </thead>
@@ -318,14 +352,6 @@ export default function OrderListPage() {
                 ) : (
                   paginatedOrders.map((order) => (
                     <tr key={order.ID} className="border-b border-sidebar-border/70 hover:bg-muted/50 transition-colors">
-                      <td className="px-4 py-3">
-                        <Link href={`/orders/${order.ID}`}>
-                          <Button variant="outline" size="sm">
-                            <Icon path={mdi.mdiEyeOutline} className="mr-2 h-4 w-4" />
-                            View
-                          </Button>
-                        </Link>
-                      </td>
                       <td className="px-4 py-3 font-medium">
                         <Link href={`/orders/${order.ID}`} className="text-primary hover:underline">
                           {order.ID}
@@ -336,7 +362,6 @@ export default function OrderListPage() {
                       <td className="px-4 py-3">{order.FromUser?.LastName || "N/A"}</td>
                       <td className="px-4 py-3">{order.FromUser?.Username || order.FromCompany?.Name || "N/A"}</td>
                       <td className="px-4 py-3 font-medium">{formatPrice(order.Total)}</td>
-                      <td className="px-4 py-3">{order.LineItemCount || 0}</td>
                       <td className="px-4 py-3">
                         <Badge colorScheme={getStatusColor(getDisplayStatus(order))}>
                           {getDisplayStatus(order)}

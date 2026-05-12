@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { startTransition, useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { Icon } from "@/lib/icon";
 import * as mdi from "@mdi/js";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Card, CardContent } from "@/components/ui/card";
 import { getCustomers } from "@/src/app/actions/ordercloud";
 
 function formatDate(dateStr?: string) {
@@ -32,15 +33,23 @@ export default function CustomersPage() {
 
   // Filters state
   const [searchQuery, setSearchQuery] = useState("");
+  const [pendingSearchQuery, setPendingSearchQuery] = useState("");
   const [accountType, setAccountType] = useState("");
+  const [pendingAccountType, setPendingAccountType] = useState("");
   const [confirmedEmail, setConfirmedEmail] = useState("");
+  const [pendingConfirmedEmail, setPendingConfirmedEmail] = useState("");
   const [status, setStatus] = useState("");
+  const [pendingStatus, setPendingStatus] = useState("");
   const [dateFrom, setDateFrom] = useState("");
+  const [pendingDateFrom, setPendingDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [pendingDateTo, setPendingDateTo] = useState("");
   
   // Pagination
   const [page, setPage] = useState(1);
   const pageSize = 20;
+  const [isSearching, setIsSearching] = useState(false);
+  const [isFiltering, setIsFiltering] = useState(false);
 
   const fetchCustomers = useCallback(async () => {
     setIsLoading(true);
@@ -95,19 +104,41 @@ export default function CustomersPage() {
     fetchCustomers();
   }, [fetchCustomers]);
 
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    setPage(1); // Reset to first page
-    fetchCustomers();
-  };
+  function handleSearchSubmit() {
+    setIsSearching(true);
+    startTransition(() => {
+      setSearchQuery(pendingSearchQuery);
+      setPage(1);
+      setIsSearching(false);
+    });
+  }
+
+  function handleFilterSubmit() {
+    setIsFiltering(true);
+    startTransition(() => {
+      setAccountType(pendingAccountType);
+      setConfirmedEmail(pendingConfirmedEmail);
+      setStatus(pendingStatus);
+      setDateFrom(pendingDateFrom);
+      setDateTo(pendingDateTo);
+      setPage(1);
+      setIsFiltering(false);
+    });
+  }
 
   const handleResetFilters = () => {
     setSearchQuery("");
+    setPendingSearchQuery("");
     setAccountType("");
+    setPendingAccountType("");
     setConfirmedEmail("");
+    setPendingConfirmedEmail("");
     setStatus("");
+    setPendingStatus("");
     setDateFrom("");
+    setPendingDateFrom("");
     setDateTo("");
+    setPendingDateTo("");
     setPage(1);
   };
 
@@ -126,87 +157,130 @@ export default function CustomersPage() {
         <p className="text-subtle-text">Manage your buyers and accounts.</p>
       </div>
 
-      {/* Filters */}
-      <div className="bg-card border border-sidebar-border rounded-lg p-4 space-y-4 shadow-sm">
-        <form onSubmit={handleSearch} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 gap-4 items-end">
-          
-          <div className="space-y-2 xl:col-span-2">
-            <label className="text-xs font-semibold text-subtle-text uppercase tracking-wider">Search</label>
-            <Input 
-              placeholder="Search by name, email..." 
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-body-bg border-sidebar-border text-body-text h-10"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-xs font-semibold text-subtle-text uppercase tracking-wider">Account Type</label>
-            <select 
-              value={accountType} 
-              onChange={(e) => setAccountType(e.target.value)}
-              className="flex h-10 w-full items-center justify-between whitespace-nowrap rounded-md border border-sidebar-border bg-body-bg px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring text-body-text"
-            >
-              <option value="">Select account type</option>
-              <option value="Personal">Personal</option>
-              <option value="Business">Business</option>
-            </select>
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-xs font-semibold text-subtle-text uppercase tracking-wider">Confirmed Email</label>
-            <select 
-              value={confirmedEmail} 
-              onChange={(e) => setConfirmedEmail(e.target.value)}
-              className="flex h-10 w-full items-center justify-between whitespace-nowrap rounded-md border border-sidebar-border bg-body-bg px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring text-body-text"
-            >
-              <option value="">Select status</option>
-              <option value="true">True</option>
-              <option value="false">False</option>
-            </select>
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-xs font-semibold text-subtle-text uppercase tracking-wider">Status</label>
-            <select 
-              value={status} 
-              onChange={(e) => setStatus(e.target.value)}
-              className="flex h-10 w-full items-center justify-between whitespace-nowrap rounded-md border border-sidebar-border bg-body-bg px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring text-body-text"
-            >
-              <option value="">Select status</option>
-              <option value="Active">Active</option>
-              <option value="Inactive">Inactive</option>
-            </select>
-          </div>
-
-          <div className="space-y-2 xl:col-span-2">
-            <label className="text-xs font-semibold text-subtle-text uppercase tracking-wider">Created Date</label>
-            <div className="flex items-center gap-2">
-              <Input 
-                type="date"
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-                className="w-full bg-body-bg border-sidebar-border text-body-text h-10"
+      <Card className="border-sidebar-border">
+        <CardContent className="space-y-4 p-4">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center">
+            <div className="relative w-full md:max-w-xs">
+              <Icon
+                path={mdi.mdiMagnify}
+                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-subtle-text"
               />
-              <span className="text-subtle-text">-</span>
-              <Input 
-                type="date"
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-                className="w-full bg-body-bg border-sidebar-border text-body-text h-10"
+              <Input
+                className="pl-9"
+                placeholder="Search by name or email"
+                value={pendingSearchQuery}
+                onChange={(e) => setPendingSearchQuery(e.target.value)}
               />
+            </div>
+            <Button
+              variant="outline"
+              className="border-sidebar-border"
+              onClick={handleSearchSubmit}
+              disabled={isLoading || isSearching}
+            >
+              {isSearching ? (
+                <span className="inline-flex items-center gap-2 text-sm font-medium text-neutral-fg">
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-neutral-bg-active border-t-primary" />
+                  Searching...
+                </span>
+              ) : (
+                <>
+                  <Icon path={mdi.mdiDatabaseSearch} className="mr-2 h-4 w-4" />
+                  Search
+                </>
+              )}
+            </Button>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-6 lg:grid-cols-12">
+            <div className="space-y-1 md:col-span-2 lg:col-span-2">
+              <p className="text-xs text-subtle-text">Account Type</p>
+              <select
+                value={pendingAccountType}
+                onChange={(e) => setPendingAccountType(e.target.value)}
+                className="border-input focus:border-primary focus:ring-primary h-10 w-full rounded-md border bg-body-bg px-3 text-sm focus:ring-1 focus:outline-none"
+              >
+                <option value="">Select account type</option>
+                <option value="Personal">Personal</option>
+                <option value="Business">Business</option>
+              </select>
+            </div>
+
+            <div className="space-y-1 md:col-span-2 lg:col-span-2">
+              <p className="text-xs text-subtle-text">Confirmed Email</p>
+              <select
+                value={pendingConfirmedEmail}
+                onChange={(e) => setPendingConfirmedEmail(e.target.value)}
+                className="border-input focus:border-primary focus:ring-primary h-10 w-full rounded-md border bg-body-bg px-3 text-sm focus:ring-1 focus:outline-none"
+              >
+                <option value="">Select status</option>
+                <option value="true">True</option>
+                <option value="false">False</option>
+              </select>
+            </div>
+
+            <div className="space-y-1 md:col-span-2 lg:col-span-2">
+              <p className="text-xs text-subtle-text">Status</p>
+              <select
+                value={pendingStatus}
+                onChange={(e) => setPendingStatus(e.target.value)}
+                className="border-input focus:border-primary focus:ring-primary h-10 w-full rounded-md border bg-body-bg px-3 text-sm focus:ring-1 focus:outline-none"
+              >
+                <option value="">Select status</option>
+                <option value="Active">Active</option>
+                <option value="Inactive">Inactive</option>
+              </select>
+            </div>
+
+            <div className="space-y-1 md:col-span-2 lg:col-span-4">
+              <p className="text-xs text-subtle-text">Created Date</p>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="date"
+                  value={pendingDateFrom}
+                  onChange={(e) => setPendingDateFrom(e.target.value)}
+                  className="h-10 flex-1 min-w-0 text-sm pr-12"
+                />
+                <span className="text-subtle-text">-</span>
+                <Input
+                  type="date"
+                  value={pendingDateTo}
+                  onChange={(e) => setPendingDateTo(e.target.value)}
+                  className="h-10 flex-1 min-w-0 text-sm pr-12"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-end gap-1 md:col-span-6 lg:col-span-2">
+              <Button
+                variant="outline"
+                className="border-sidebar-border"
+                onClick={handleFilterSubmit}
+                disabled={isLoading || isFiltering}
+              >
+                {isFiltering ? (
+                  <span className="inline-flex items-center gap-2 text-sm font-medium text-neutral-fg">
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-neutral-bg-active border-t-primary" />
+                    Filtering...
+                  </span>
+                ) : (
+                  <>
+                    <Icon path={mdi.mdiFilterOutline} className="mr-2 h-4 w-4" />
+                    Filter
+                  </>
+                )}
+              </Button>
+              <Button variant="ghost" onClick={handleResetFilters}>
+                Clear
+              </Button>
             </div>
           </div>
 
-          <div className="flex gap-2 xl:col-span-1">
-             <Button type="submit" variant="default" className="w-full bg-primary hover:bg-primary/90 h-10">Filter</Button>
-             <Button type="button" variant="outline" onClick={handleResetFilters} title="Reset Filters" className="h-10 px-3">
-                <Icon path={mdi.mdiRefresh} size={0.8} />
-             </Button>
+          <div className="text-sm text-subtle-text">
+            Total {totalCount} | Showing {customers.length} | Page {page}
           </div>
-
-        </form>
-      </div>
+        </CardContent>
+      </Card>
 
       {/* Table Section */}
       <div className="bg-card border border-sidebar-border rounded-lg shadow-sm overflow-hidden">
@@ -219,7 +293,6 @@ export default function CustomersPage() {
           <table className="w-full text-sm text-left">
             <thead className="text-xs text-subtle-text uppercase bg-muted/50 border-b border-sidebar-border whitespace-nowrap">
               <tr>
-                <th className="px-4 py-3 font-medium">Action</th>
                 <th className="px-4 py-3 font-medium">ID</th>
                 <th className="px-4 py-3 font-medium">Name</th>
                 <th className="px-4 py-3 font-medium">Email</th>
@@ -265,14 +338,6 @@ export default function CustomersPage() {
                   
                   return (
                     <tr key={user.ID} className="hover:bg-muted/30 transition-colors whitespace-nowrap">
-                      <td className="px-4 py-3">
-                        <Link href={`/customers/${user.ID}`}>
-                          <Button variant="outline" size="sm">
-                            <Icon path={mdi.mdiEyeOutline} className="mr-2 h-4 w-4" />
-                            View
-                          </Button>
-                        </Link>
-                      </td>
                       <td className="px-4 py-3 font-mono text-xs">
                         <Link href={`/customers/${user.ID}`} className="text-primary hover:underline">
                           {user.ID}

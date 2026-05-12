@@ -106,7 +106,7 @@ export async function getOrderDetail(orderId: string) {
 
     const [lineItemsRes, promotionsRes, paymentsRes] = await Promise.all([
       LineItems.List("All", orderId).catch(() => ({ Items: [] })),
-      Orders.ListPromotions("All", orderId).catch(() => ({ Items: [] })),
+      Orders.ListPromotions("Incoming", orderId).catch(() => ({ Items: [] })),
       Payments.List("All", orderId).catch(() => ({ Items: [] }))
     ]);
 
@@ -160,42 +160,12 @@ export async function getOrderDetail(orderId: string) {
       }
     }
 
-    // Mock fetching CouponCode from db.CustomCouponHistories
-    // Real logic: Query API/Workato with orderId and customerId (order.FromUser?.ID)
-    // and match CustomCoupon.PromotionOrderCloudID == PromotionID
-    // Handle missing promotions by injecting a fake one for demo purposes
-    // since the API might return an empty array if the order truly has no promotions.
-    // OrderCloud SDK typings here can be very strict (deep required types).
-    // We treat promotions as plain JSON so we can safely enrich/mocks without TS friction.
-    let promoItems: any[] = (promotionsRes as any).Items || [];
-    if (promoItems.length === 0) {
-      promoItems = [{
-        ID: "BROTHER-00000113",
-        Amount: 5314.4,
-        xp: {
-          PromotionFrom: "EC",
-          PromotionType: "PERCENTAGE"
-        }
-      }];
-    }
-
-    const enrichedPromotions = promoItems.map((promo: any) => {
-      // Mock logic: generate a fake coupon code if it doesn't have one natively
-      let mockedCouponCode = promo.Code;
-      if (!mockedCouponCode) {
-        if (promo.ID === "BROTHER-00000113") mockedCouponCode = "WELCOME10";
-        else mockedCouponCode = `CPN-${Math.floor(Math.random() * 10000)}`;
-      }
-      return {
-        ...promo,
-        Code: mockedCouponCode
-      };
-    });
+    const promoItems: any[] = (promotionsRes as any).Items || [];
 
     const resultData = {
       ...order,
       LineItems: lineItemsRes.Items,
-      AppliedPromotions: enrichedPromotions,
+      AppliedPromotions: promoItems,
       ResolvedShippingAddress: shippingAddress,
       PaymentInfo: paymentInfo
     };
@@ -267,13 +237,7 @@ export async function completeOrderAction(orderId: string) {
     if (!auth.success || !auth.token) throw new Error("Auth failed");
     const { Orders, Tokens } = await import("ordercloud-javascript-sdk");
     Tokens.SetAccessToken(auth.token);
-
-    await Orders.Patch("Incoming", orderId, {
-      xp: {
-        SubStatus: "COMPLETED",
-        LastUpdated: new Date().toISOString()
-      }
-    });
+    await Orders.Complete("Incoming", orderId);
     return { success: true };
   } catch (err: any) {
     console.error("Complete Error:", err);
@@ -332,6 +296,100 @@ export async function getCustomers(page = 1, pageSize = 20, search?: string, fil
   } catch (err: any) {
     console.error("Get Customers Error:", err);
     return { success: false, error: err.message || "Failed to get customers" };
+  }
+}
+
+export async function getPromotions(
+  page = 1,
+  pageSize = 20,
+  search?: string,
+  active?: string,
+) {
+  try {
+    const auth = await getOrderCloudToken();
+    if (!auth.success || !auth.token) throw new Error("Auth failed");
+    const { Promotions, Tokens } = await import("ordercloud-javascript-sdk");
+    Tokens.SetAccessToken(auth.token);
+
+    const filters: any = {};
+    if (active === "true" || active === "false") {
+      filters.Active = active;
+    }
+    filters["xp.Country"] = 'SiteCoreAI';
+
+    const list = await Promotions.List({
+      page,
+      pageSize,
+      search,
+      filters,
+      sortBy: ["!Priority"],
+    });
+
+    return { success: true, data: JSON.parse(JSON.stringify(list)) };
+  } catch (err: any) {
+    console.error("Get Promotions Error:", err);
+    return { success: false, error: err.message || "Failed to get promotions" };
+  }
+}
+
+export async function createPromotion(payload: {
+  name: string;
+  code: string;
+  active: boolean;
+  autoApply: boolean;
+  canCombine: boolean;
+  type: "FixedAmount" | "Percentage";
+  amount: number;
+  priority?: number;
+  startDate?: string;
+  expirationDate?: string;
+  messageEn?: string;
+  allowAllUserGroups?: boolean;
+  allowedUserGroupIds?: string[];
+  allowedUserGroupNames?: string[];
+}) {
+  try {
+    const auth = await getOrderCloudToken();
+    if (!auth.success || !auth.token) throw new Error("Auth failed");
+    const { Promotions, Tokens } = await import("ordercloud-javascript-sdk");
+    Tokens.SetAccessToken(auth.token);
+
+    const normalizedAmount = Number(payload.amount) || 0;
+    const valueExpression =
+      payload.type === "Percentage"
+        ? `order.Subtotal * ${(normalizedAmount / 100).toString()}`
+        : normalizedAmount.toString();
+
+    const created = await Promotions.Create({
+      Name: payload.name.trim(),
+      Code: payload.code.trim(),
+      Active: payload.active,
+      AutoApply: payload.autoApply,
+      CanCombine: payload.canCombine,
+      Priority: payload.priority,
+      StartDate: payload.startDate || undefined,
+      ExpirationDate: payload.expirationDate || undefined,
+      EligibleExpression: "order.Subtotal > 0",
+      ValueExpression: valueExpression,
+      xp: {
+        PromotionType: payload.type,
+        Country: "SiteCoreAI",
+        MessageEn: payload.messageEn?.trim() || undefined,
+        AllowAllUserGroups: payload.allowAllUserGroups !== false,
+        AllowedUserGroupLimitation:
+          payload.allowAllUserGroups === false
+            ? {
+                UserGroupIDs: payload.allowedUserGroupIds || [],
+                UserGroupDisplayingNames: payload.allowedUserGroupNames || [],
+              }
+            : undefined,
+      },
+    } as any);
+
+    return { success: true, data: JSON.parse(JSON.stringify(created)) };
+  } catch (err: any) {
+    console.error("Create Promotion Error:", err);
+    return { success: false, error: err.message || "Failed to create promotion" };
   }
 }
 
@@ -432,13 +490,10 @@ export async function createCustomerAddress(
       LastName: payload.lastName,
       CompanyName: payload.companyName || undefined,
       Street1: payload.street1,
-      City: payload.suburb || undefined,
-      State: payload.state || undefined,
-      Zip: payload.postcode || undefined,
-      Country: "AU",
+      City: "N/A",
+      Country: "SC",
       Phone: payload.mobile ? `${payload.mobileAreaCode || ""}${payload.mobile}` : undefined,
       xp: {
-        DPID: payload.dpid || undefined,
         SaveAddressAs: payload.saveAs || undefined,
         MobileAreaCode: payload.mobileAreaCode || undefined,
       },
@@ -469,10 +524,6 @@ export async function updateCustomerAddress(
     mobileAreaCode?: string;
     companyName?: string;
     street1: string;
-    suburb?: string;
-    state?: string;
-    postcode?: string;
-    dpid?: string;
     saveAs?: "Home" | "Business";
     useDefaultBilling?: boolean;
     useDefaultShipping?: boolean;
@@ -494,15 +545,11 @@ export async function updateCustomerAddress(
       LastName: payload.lastName,
       CompanyName: payload.companyName || undefined,
       Street1: payload.street1,
-      City: payload.suburb || undefined,
-      State: payload.state || undefined,
-      Zip: payload.postcode || undefined,
+      City: "N/A",
+      Country: "SC",
       Phone: payload.mobile ? `${payload.mobileAreaCode || ""}${payload.mobile}` : undefined,
       xp: {
-        // Keep DPID immutable in UI, but allow storing if provided by integration.
-        DPID: payload.dpid || undefined,
         SaveAddressAs: payload.saveAs || undefined,
-        MobileAreaCode: payload.mobileAreaCode || undefined,
       },
     } as any);
 
