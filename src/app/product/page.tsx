@@ -128,6 +128,11 @@ function formatSitecoreMultilistValue(itemIds: string[]): string {
   return itemIds.join("|");
 }
 
+function isMissingOrdercloudId(value?: string): boolean {
+  const normalizedValue = value?.trim();
+  return !normalizedValue || normalizedValue?.length === 0|| normalizedValue === "N/A";
+}
+
 function normalizeMediaItemId(value: string): string {
   return value.replace(/[{}-]/g, "").toUpperCase();
 }
@@ -747,6 +752,7 @@ export default function ProductPage() {
 
   async function handleOpenUpdateModal(product: ProductRow) {
     clearMessage();
+    const updateLanguage = languageFilter || DEFAULT_PRODUCT_LANGUAGE;
     const mediaItemIds = product.mediaItemIds ?? [];
     setEditingProduct(product);
     setPendingLocalPublishProduct({
@@ -754,7 +760,7 @@ export default function ProductPage() {
       modelName: product.modelName,
     });
     setCreateForm({
-      language: product.language || DEFAULT_PRODUCT_LANGUAGE,
+      language: updateLanguage,
       model_name: product.modelName,
       desc: product.description,
       category: "",
@@ -768,16 +774,20 @@ export default function ProductPage() {
     setMediaLibraryOptions([]);
     setIsCreateModalOpen(true);
     await syncSelectedMediaItems(mediaItemIds);
+    if (updateLanguage !== (product.language || DEFAULT_PRODUCT_LANGUAGE)) {
+      await handleEditLanguageChange(updateLanguage);
+    }
   }
 
   async function handleEditLanguageChange(language: string) {
     if (!editingProduct || !client || !isInitialized) return;
+    const currentEditingProduct = editingProduct;
 
     setIsSwitchingEditLanguage(true);
     clearMessage();
     try {
       const localizedProduct = await fetchMarketplaceProductById(client, {
-        itemId: editingProduct.id,
+        itemId: currentEditingProduct.id,
         language,
       });
 
@@ -785,49 +795,41 @@ export default function ProductPage() {
         throw new Error(`No product data found for language ${language}.`);
       }
 
-      let fallbackEnProduct: ProductRow | null = null;
-      const needsEnglishFallback =
-        language !== DEFAULT_PRODUCT_LANGUAGE &&
-        (
-          localizedProduct.price === 0 ||
-          localizedProduct.quantity === 0 ||
-          !localizedProduct.ordercloud_id ||
-          localizedProduct.ordercloud_id === "N/A"
-        );
-
-      if (needsEnglishFallback) {
-        fallbackEnProduct = await fetchMarketplaceProductById(client, {
-          itemId: editingProduct.id,
-          language: DEFAULT_PRODUCT_LANGUAGE,
-        });
-      }
-
       const resolvedPrice =
-        localizedProduct.price === 0 && fallbackEnProduct ? fallbackEnProduct.price : localizedProduct.price;
+        localizedProduct.price === 0 ? currentEditingProduct.price : localizedProduct.price;
       const resolvedQuantity =
-        localizedProduct.quantity === 0 && fallbackEnProduct ? fallbackEnProduct.quantity : localizedProduct.quantity;
+        localizedProduct.quantity === 0 ? currentEditingProduct.quantity : localizedProduct.quantity;
       const resolvedOrdercloudId =
-        (!localizedProduct.ordercloud_id || localizedProduct.ordercloud_id === "N/A") && fallbackEnProduct
-          ? fallbackEnProduct.ordercloud_id
+        isMissingOrdercloudId(localizedProduct.ordercloud_id)
+          ? currentEditingProduct.ordercloud_id
           : localizedProduct.ordercloud_id;
+      const resolvedMediaItemIds =
+        !localizedProduct.mediaItemIds || localizedProduct.mediaItemIds.length === 0
+          ? currentEditingProduct.mediaItemIds ?? []
+          : localizedProduct.mediaItemIds;
+      
 
       setEditingProduct((prev) =>
         prev
-          ? { ...prev, ...localizedProduct, language, ordercloud_id: resolvedOrdercloudId }
+          ? {
+              ...prev,
+              ...localizedProduct,
+              language,
+              ordercloud_id: resolvedOrdercloudId,
+              mediaItemIds: resolvedMediaItemIds,
+            }
           : prev
       );
       setCreateForm((prev) => ({
         ...prev,
         language,
-        model_name: localizedProduct.modelName,
-        desc: localizedProduct.description,
+        model_name: localizedProduct.modelName === 'N/A' ? '' : localizedProduct.modelName,
+        desc: localizedProduct.description?.includes('N/A') ? '' : localizedProduct.description, 
         price: resolvedPrice,
         quantity: resolvedQuantity,
       }));
 
-      const mediaItemIds = localizedProduct.mediaItemIds ?? [];
-      setSelectedMediaItemIds(mediaItemIds);
-      await syncSelectedMediaItems(mediaItemIds);
+      setSelectedMediaItemIds(resolvedMediaItemIds);
     } catch (error) {
       showMessage(getErrorMessage(error, "Unable to load product for selected language."), "destructive");
     } finally {
@@ -886,8 +888,23 @@ export default function ProductPage() {
   }, []);
 
   const removeSelectedMediaItem = useCallback(function removeSelectedMediaItem(itemId: string) {
-    setSelectedMediaItemIds((prev) => prev.filter((id) => id !== itemId));
-    setSelectedMediaItems((prev) => prev.filter((item) => item.itemId !== itemId));
+    const normalizedTargetId = normalizeMediaItemId(itemId);
+    setSelectedMediaItemIds((prev) =>
+      prev.filter((id) => normalizeMediaItemId(id) !== normalizedTargetId)
+    );
+    setSelectedMediaItems((prev) =>
+      prev.filter((item) => normalizeMediaItemId(item.itemId) !== normalizedTargetId)
+    );
+    setEditingProduct((prev) =>
+      prev
+        ? {
+            ...prev,
+            mediaItemIds: (prev.mediaItemIds ?? []).filter(
+              (id) => normalizeMediaItemId(id) !== normalizedTargetId,
+            ),
+          }
+        : prev
+    );
   }, []);
 
   async function handleLoadMediaLibrary({ quiet = false }: { quiet?: boolean } = {}) {
@@ -1061,7 +1078,6 @@ export default function ProductPage() {
       const payload: CreateProductBody = {
         ...createForm,
         model_name: normalizedModelName,
-        price_name: `${normalizedModelName.replace(/\s+/g, "_")}_price`,
         category: createForm.category.trim(),
         catalog: createForm.catalog.trim(),
         desc: createForm.desc.trim() || "<p>No description</p>",

@@ -419,7 +419,6 @@ export default function CustomerDetailPage() {
           <InfoRow label="Created Date" value={formatDateTime(customer.DateCreated)} />
           <InfoRow label="Customer Since" value={formatDateTime(customerSince)} />
           <InfoRow label="Customer Created In" value={createdIn} />
-          <InfoRow label="Customer Group" value={customerGroupText} />
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 sm:items-center">
             <p className="text-xs font-semibold text-subtle-text uppercase tracking-wider">Confirmed Email</p>
             <div className="sm:col-span-2 flex items-center gap-3">
@@ -539,7 +538,7 @@ export default function CustomerDetailPage() {
             <p className="text-subtle-text">{addresses.length ? "" : "No addresses found."}</p>
             <Button onClick={openNewAddressDialog}>
               <Icon path={mdi.mdiPlus} className="mr-2 h-4 w-4" />
-              Add New Address
+              Create New Address
             </Button>
           </div>
 

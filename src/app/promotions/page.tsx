@@ -15,7 +15,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Icon } from "@/lib/icon";
-import { createPromotion, getPromotions } from "@/src/app/actions/ordercloud";
+import { createPromotion, getPromotions, updatePromotion } from "@/src/app/actions/ordercloud";
 
 const ACTIVE_ALL = "all";
 const ACTIVE_OPTIONS = [
@@ -27,12 +27,6 @@ const ACTIVE_OPTIONS = [
 const PROMOTION_TYPE_OPTIONS = [
   { value: "FixedAmount", label: "Fixed Amount" },
   { value: "Percentage", label: "Percentage" },
-] as const;
-
-const CUSTOMER_GROUP_OPTIONS = [
-  { id: "business", label: "Business" },
-  { id: "guest", label: "Guest" },
-  { id: "personal", label: "Personal" },
 ] as const;
 
 function BlokLoader({ label }: { label: string }) {
@@ -63,6 +57,58 @@ function formatDate(value?: string) {
   });
 }
 
+function parsePromotionAmount(value: string, type: "FixedAmount" | "Percentage") {
+  const numericValue = Number(value);
+
+  if (Number.isNaN(numericValue) || numericValue <= 0) {
+    return 0;
+  }
+
+  if (type === "Percentage") {
+    return Math.min(numericValue, 100);
+  }
+
+  return numericValue;
+}
+
+function parseStoredPromotionAmount(promotion: any, type: "FixedAmount" | "Percentage") {
+  const valueExpression = String(promotion?.ValueExpression || "").trim();
+
+  if (!valueExpression) {
+    return 0;
+  }
+
+  if (type === "Percentage") {
+    const multiplier = valueExpression.match(/order\.Subtotal\s*\*\s*([0-9.]+)/i);
+    if (!multiplier) {
+      return 0;
+    }
+
+    return Number(multiplier[1]) * 100 || 0;
+  }
+
+  return Number(valueExpression) || 0;
+}
+
+function getPromotionFormState(promotion?: any) {
+  const type = (promotion?.xp?.PromotionType || "FixedAmount") as "FixedAmount" | "Percentage";
+
+  return {
+    active: Boolean(promotion?.Active),
+    autoApply: Boolean(promotion?.AutoApply),
+    canCombine: Boolean(promotion?.CanCombine),
+    allowAllUserGroups: promotion?.xp?.AllowAllUserGroups !== false,
+    name: promotion?.Name || "",
+    code: promotion?.Code || "",
+    type,
+    amount: parseStoredPromotionAmount(promotion, type),
+    priority: Number(promotion?.Priority) || 1,
+    startDate: promotion?.StartDate ? String(promotion.StartDate).slice(0, 10) : "",
+    expirationDate: promotion?.ExpirationDate ? String(promotion.ExpirationDate).slice(0, 10) : "",
+    messageEn: promotion?.xp?.MessageEn || "",
+  };
+}
+
 export default function PromotionsPage() {
   const [promotions, setPromotions] = useState<any[]>([]);
   const [totalCount, setTotalCount] = useState(0);
@@ -73,6 +119,7 @@ export default function PromotionsPage() {
   const [isFiltering, setIsFiltering] = useState(false);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+  const [editingPromotionId, setEditingPromotionId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [createError, setCreateError] = useState("");
   const [toast, setToast] = useState<string | null>(null);
@@ -82,21 +129,7 @@ export default function PromotionsPage() {
   const [activeFilter, setActiveFilter] = useState(ACTIVE_ALL);
   const [pendingActiveFilter, setPendingActiveFilter] = useState(ACTIVE_ALL);
 
-  const [createForm, setCreateForm] = useState({
-    active: true,
-    autoApply: false,
-    canCombine: false,
-    allowAllUserGroups: true,
-    selectedUserGroups: [] as string[],
-    name: "",
-    code: "",
-    type: "FixedAmount" as "FixedAmount" | "Percentage",
-    amount: 0,
-    priority: 1,
-    startDate: "",
-    expirationDate: "",
-    messageEn: "",
-  });
+  const [createForm, setCreateForm] = useState(getPromotionFormState());
 
   async function loadPromotionList({
     pageOverride,
@@ -182,26 +215,20 @@ export default function PromotionsPage() {
 
   function resetCreateForm() {
     setCreateError("");
-    setCreateForm({
-      active: true,
-      autoApply: false,
-      canCombine: false,
-      allowAllUserGroups: true,
-      selectedUserGroups: [],
-      name: "",
-      code: "",
-      type: "FixedAmount",
-      amount: 0,
-      priority: 1,
-      startDate: "",
-      expirationDate: "",
-      messageEn: "",
-    });
+    setEditingPromotionId(null);
+    setCreateForm(getPromotionFormState());
   }
 
-  async function handleCreatePromotion() {
+  function openEditPromotion(promotion: any) {
     setCreateError("");
-    if (!createForm.name.trim() || !createForm.code.trim()) {
+    setEditingPromotionId(promotion.ID);
+    setCreateForm(getPromotionFormState(promotion));
+    setIsCreateOpen(true);
+  }
+
+  async function handleSavePromotion() {
+    setCreateError("");
+    if (!editingPromotionId && (!createForm.name.trim() || !createForm.code.trim())) {
       setCreateError("Name and Code are required.");
       return;
     }
@@ -213,16 +240,10 @@ export default function PromotionsPage() {
       setCreateError("Percentage value cannot be greater than 100.");
       return;
     }
-    if (!createForm.allowAllUserGroups && createForm.selectedUserGroups.length === 0) {
-      setCreateError("Select at least one customer group or allow all groups.");
-      return;
-    }
 
     setIsCreating(true);
     try {
-      const res = await createPromotion({
-        name: createForm.name,
-        code: createForm.code,
+      const basePayload = {
         active: createForm.active,
         autoApply: createForm.autoApply,
         canCombine: createForm.canCombine,
@@ -233,14 +254,20 @@ export default function PromotionsPage() {
         expirationDate: createForm.expirationDate || undefined,
         messageEn: createForm.messageEn,
         allowAllUserGroups: createForm.allowAllUserGroups,
-        allowedUserGroupIds: createForm.allowAllUserGroups ? [] : [...createForm.selectedUserGroups],
-        allowedUserGroupNames: createForm.allowAllUserGroups
-          ? []
-          : CUSTOMER_GROUP_OPTIONS.filter((option) => createForm.selectedUserGroups.includes(option.id)).map((option) => option.label),
-      });
+      };
+      const res = editingPromotionId
+        ? await updatePromotion({
+            id: editingPromotionId,
+            ...basePayload,
+          })
+        : await createPromotion({
+            name: createForm.name,
+            code: createForm.code,
+            ...basePayload,
+          });
 
       if (!res.success) {
-        setCreateError(res.error || "Failed to create promotion.");
+        setCreateError(res.error || `Failed to ${editingPromotionId ? "update" : "create"} promotion.`);
         return;
       }
 
@@ -248,12 +275,14 @@ export default function PromotionsPage() {
       resetCreateForm();
       setPage(1);
       await loadPromotionList({ pageOverride: 1 });
-      setToast("Promotion created successfully.");
+      setToast(`Promotion ${editingPromotionId ? "updated" : "created"} successfully.`);
       setTimeout(() => setToast(null), 3000);
     } finally {
       setIsCreating(false);
     }
   }
+
+  const isEditMode = Boolean(editingPromotionId);
 
   const totalPages = useMemo(() => Math.max(1, Math.ceil(totalCount / pageSize)), [pageSize, totalCount]);
 
@@ -306,7 +335,7 @@ export default function PromotionsPage() {
                 }}
               >
                 <Icon path={mdi.mdiPlus} className="mr-2 h-4 w-4" />
-                Add New Promotion
+                Create New Promotion
               </Button>
             </div>
           </div>
@@ -354,15 +383,17 @@ export default function PromotionsPage() {
       <Card className="border-sidebar-border">
         <CardContent className="p-0">
           <div className="w-full overflow-x-auto">
-            <table className="w-full min-w-[860px] text-sm text-left">
+            <table className="w-full min-w-[1080px] text-sm text-left">
               <thead className="bg-muted">
                 <tr className="border-b border-sidebar-border">
                   <th className="px-4 py-3 font-semibold">Code</th>
                   <th className="px-4 py-3 font-semibold">Name</th>
                   <th className="px-4 py-3 font-semibold">Type</th>
+                  <th className="px-4 py-3 font-semibold">Promotion Message</th>
                   <th className="px-4 py-3 font-semibold">Start Date</th>
                   <th className="px-4 py-3 font-semibold">Expiration Date</th>
                   <th className="px-4 py-3 font-semibold">Status</th>
+                  <th className="px-4 py-3 font-semibold">Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -390,12 +421,18 @@ export default function PromotionsPage() {
                       <td className="px-4 py-3 font-medium">{promotion.Code || "N/A"}</td>
                       <td className="px-4 py-3">{promotion.Name || "N/A"}</td>
                       <td className="px-4 py-3">{getPromotionTypeLabel(promotion)}</td>
+                      <td className="px-4 py-3">{promotion?.xp?.MessageEn || "N/A"}</td>
                       <td className="px-4 py-3">{formatDate(promotion.StartDate)}</td>
                       <td className="px-4 py-3">{formatDate(promotion.ExpirationDate)}</td>
                       <td className="px-4 py-3">
                         <Badge colorScheme={getStatusColor(Boolean(promotion.Active))}>
                           {promotion.Active ? "Active" : "Inactive"}
                         </Badge>
+                      </td>
+                      <td className="px-4 py-3">
+                        <Button variant="outline" className="border-sidebar-border" onClick={() => openEditPromotion(promotion)}>
+                          Update
+                        </Button>
                       </td>
                     </tr>
                   ))
@@ -431,11 +468,21 @@ export default function PromotionsPage() {
         </CardContent>
       </Card>
 
-      <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+      <Dialog
+        open={isCreateOpen}
+        onOpenChange={(open) => {
+          setIsCreateOpen(open);
+          if (!open) {
+            resetCreateForm();
+          }
+        }}
+      >
         <DialogContent className="border-sidebar-border p-0 sm:max-w-6xl">
           <DialogHeader>
             <div className="border-b border-sidebar-border px-6 py-5">
-              <DialogTitle className="text-xl font-semibold text-body-text">Create Promotion</DialogTitle>
+              <DialogTitle className="text-xl font-semibold text-body-text">
+                {isEditMode ? "Update Promotion" : "Create Promotion"}
+              </DialogTitle>
             </div>
           </DialogHeader>
 
@@ -484,6 +531,7 @@ export default function PromotionsPage() {
                           placeholder="Promotion name"
                           value={createForm.name}
                           onChange={(event) => setCreateForm((prev) => ({ ...prev, name: event.target.value }))}
+                          disabled={isEditMode}
                         />
                       </div>
                       <div className="space-y-2">
@@ -492,6 +540,7 @@ export default function PromotionsPage() {
                           placeholder="PROMO2026"
                           value={createForm.code}
                           onChange={(event) => setCreateForm((prev) => ({ ...prev, code: event.target.value.toUpperCase() }))}
+                          disabled={isEditMode}
                         />
                       </div>
                     </div>
@@ -515,7 +564,16 @@ export default function PromotionsPage() {
                               name="promotionType"
                               value={option.value}
                               checked={createForm.type === option.value}
-                              onChange={() => setCreateForm((prev) => ({ ...prev, type: option.value }))}
+                              onChange={() =>
+                                setCreateForm((prev) => ({
+                                  ...prev,
+                                  type: option.value,
+                                  amount:
+                                    option.value === "Percentage"
+                                      ? Math.min(prev.amount, 100)
+                                      : prev.amount,
+                                }))
+                              }
                               className="h-4 w-4 accent-primary"
                             />
                             <span>{option.label}</span>
@@ -530,8 +588,14 @@ export default function PromotionsPage() {
                         type="number"
                         min={0}
                         step="0.01"
+                        max={createForm.type === "Percentage" ? 100 : undefined}
                         value={createForm.amount}
-                        onChange={(event) => setCreateForm((prev) => ({ ...prev, amount: Number(event.target.value) || 0 }))}
+                        onChange={(event) =>
+                          setCreateForm((prev) => ({
+                            ...prev,
+                            amount: parsePromotionAmount(event.target.value, prev.type),
+                          }))
+                        }
                       />
                       <p className="text-xs text-subtle-text">
                         {createForm.type === "Percentage"
@@ -605,8 +669,8 @@ export default function PromotionsPage() {
             <Button variant="outline" onClick={() => setIsCreateOpen(false)} disabled={isCreating}>
               Cancel
             </Button>
-            <Button onClick={() => void handleCreatePromotion()} disabled={isCreating}>
-              {isCreating ? "Saving..." : "Save Promotion"}
+            <Button onClick={() => void handleSavePromotion()} disabled={isCreating}>
+              {isCreating ? "Saving..." : isEditMode ? "Update Promotion" : "Save Promotion"}
             </Button>
           </DialogFooter>
         </DialogContent>

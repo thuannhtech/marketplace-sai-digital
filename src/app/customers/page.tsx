@@ -302,7 +302,6 @@ export default function CustomersPage() {
                 <th className="px-4 py-3 font-medium">Status</th>
                 <th className="px-4 py-3 font-medium">Created Date</th>
                 <th className="px-4 py-3 font-medium">Phone</th>
-                <th className="px-4 py-3 font-medium">Opt In</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-sidebar-border">
@@ -361,13 +360,8 @@ export default function CustomersPage() {
                           {user.Active ? "Active" : "Inactive"}
                         </Badge>
                       </td>
-                      <td className="px-4 py-3">{formatDate(user.xp?.DateRegistered)}</td>
+                      <td className="px-4 py-3">{formatDate(user.DateCreated)}</td>
                       <td className="px-4 py-3">{user.xp?.PersonalInformation?.PhoneAreaCode ? `+${user.xp.PersonalInformation.PhoneAreaCode} ${user.Phone}` : (user.Phone || "N/A")}</td>
-                      <td className="px-4 py-3">
-                        <Badge colorScheme={isOptIn ? "primary" : "neutral"} className="text-[10px] px-2 py-0.5">
-                          {isOptIn ? "Yes" : "No"}
-                        </Badge>
-                      </td>
                     </tr>
                   );
                 })

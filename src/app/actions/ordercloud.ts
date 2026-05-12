@@ -345,8 +345,6 @@ export async function createPromotion(payload: {
   expirationDate?: string;
   messageEn?: string;
   allowAllUserGroups?: boolean;
-  allowedUserGroupIds?: string[];
-  allowedUserGroupNames?: string[];
 }) {
   try {
     const auth = await getOrderCloudToken();
@@ -376,13 +374,6 @@ export async function createPromotion(payload: {
         Country: "SiteCoreAI",
         MessageEn: payload.messageEn?.trim() || undefined,
         AllowAllUserGroups: payload.allowAllUserGroups !== false,
-        AllowedUserGroupLimitation:
-          payload.allowAllUserGroups === false
-            ? {
-                UserGroupIDs: payload.allowedUserGroupIds || [],
-                UserGroupDisplayingNames: payload.allowedUserGroupNames || [],
-              }
-            : undefined,
       },
     } as any);
 
@@ -390,6 +381,55 @@ export async function createPromotion(payload: {
   } catch (err: any) {
     console.error("Create Promotion Error:", err);
     return { success: false, error: err.message || "Failed to create promotion" };
+  }
+}
+
+export async function updatePromotion(payload: {
+  id: string;
+  active: boolean;
+  autoApply: boolean;
+  canCombine: boolean;
+  type: "FixedAmount" | "Percentage";
+  amount: number;
+  priority?: number;
+  startDate?: string;
+  expirationDate?: string;
+  messageEn?: string;
+  allowAllUserGroups?: boolean;
+}) {
+  try {
+    const auth = await getOrderCloudToken();
+    if (!auth.success || !auth.token) throw new Error("Auth failed");
+    const { Promotions, Tokens } = await import("ordercloud-javascript-sdk");
+    Tokens.SetAccessToken(auth.token);
+
+    const normalizedAmount = Number(payload.amount) || 0;
+    const valueExpression =
+      payload.type === "Percentage"
+        ? `order.Subtotal * ${(normalizedAmount / 100).toString()}`
+        : normalizedAmount.toString();
+
+    const updated = await Promotions.Patch(payload.id, {
+      Active: payload.active,
+      AutoApply: payload.autoApply,
+      CanCombine: payload.canCombine,
+      Priority: payload.priority,
+      StartDate: payload.startDate || undefined,
+      ExpirationDate: payload.expirationDate || undefined,
+      EligibleExpression: "order.Subtotal > 0",
+      ValueExpression: valueExpression,
+      xp: {
+        PromotionType: payload.type,
+        Country: "SiteCoreAI",
+        MessageEn: payload.messageEn?.trim() || undefined,
+        AllowAllUserGroups: payload.allowAllUserGroups !== false,
+      },
+    } as any);
+
+    return { success: true, data: JSON.parse(JSON.stringify(updated)) };
+  } catch (err: any) {
+    console.error("Update Promotion Error:", err);
+    return { success: false, error: err.message || "Failed to update promotion" };
   }
 }
 

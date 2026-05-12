@@ -4,7 +4,6 @@ import { createHttpClient } from "@/src/lib/api/http-client";
 export interface CreateProductPayload {
   language: string;
   model_name: string;
-  price_name?: string;
   desc: string;
   category: string;
   catalog: string;

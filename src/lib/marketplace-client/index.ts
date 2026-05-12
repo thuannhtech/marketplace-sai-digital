@@ -18,4 +18,8 @@ export {
   fetchEdgePublicUrlByItemPath,
   listMediaLibraryItemsFromEdge,
 } from "./edge";
+export {
+  fetchGstConfiguration,
+  updateGstConfigurationInGraph,
+} from "./graph/gst";
 export type { ProductRow } from "@/src/lib/domain/product/product.types";

@@ -55,4 +55,14 @@ export const siteNavigationGroups: SiteNavigationGroup[] = [
       },
     ],
   },
+  {
+    title: "Configuration",
+    items: [
+      {
+        title: "Gst Configuration",
+        url: "/gst-configuration",
+        icon: mdi.mdiCogOutline,
+      },
+    ],
+  },
 ];
