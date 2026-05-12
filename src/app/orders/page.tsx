@@ -256,21 +256,6 @@ export default function OrderListPage() {
             <div className="space-y-1 md:col-span-2 lg:col-span-3">
               <p className="text-xs text-subtle-text">Total Paid</p>
               <div className="flex items-center gap-2">
-                <Input
-                  type="number"
-                  placeholder="Min"
-                  className="h-10 w-24 text-sm"
-                  value={pendingMinPrice}
-                  onChange={(e) => setPendingMinPrice(e.target.value)}
-                />
-                <span className="text-subtle-text">-</span>
-                <Input
-                  type="number"
-                  placeholder="Max"
-                  className="h-10 w-24 text-sm"
-                  value={pendingMaxPrice}
-                  onChange={(e) => setPendingMaxPrice(e.target.value)}
-                />
                 <Button
                 variant="outline"
                 className="border-sidebar-border"
