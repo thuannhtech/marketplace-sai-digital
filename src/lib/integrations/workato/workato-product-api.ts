@@ -9,6 +9,7 @@ export interface CreateProductPayload {
   catalog: string;
   price: number;
   quantity: number;
+  price_name?: string;
   images?: {
     fileName: string;
     mimeType: string;

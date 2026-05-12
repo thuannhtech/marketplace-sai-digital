@@ -21,6 +21,7 @@ export interface CreateProductImage {
 export interface CreateProductBody {
   language: string;
   model_name: string;
+  price_name?: string;
   desc: string;
   category: string;
   catalog: string;

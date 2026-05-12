@@ -1080,6 +1080,7 @@ export default function ProductPage() {
         model_name: normalizedModelName,
         category: createForm.category.trim(),
         catalog: createForm.catalog.trim(),
+        price_name: `${normalizedModelName.replace(/\s+/g, "_")}_price`,
         desc: createForm.desc.trim() || "<p>No description</p>",
         images: selectedImages.map<CreateProductImage>((image) => ({
           fileName: image.fileName,
