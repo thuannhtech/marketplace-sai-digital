@@ -43,7 +43,7 @@ function getStatusColor(status?: string) {
 }
 
 function getDisplayStatus(order: any) {
-  return order.Status.toLowerCase() || "Unknown";
+  return order.Status?.toUpperCase() || "Unknown";
 }
 
 function BlokLoader({ label }: { label: string }) {
@@ -196,7 +196,7 @@ export default function OrderListPage() {
               />
               <Input
                 className="pl-9"
-                placeholder="Search by order number or name"
+                placeholder="Search by order number"
                 value={pendingKeyword}
                 onChange={(event) => setPendingKeyword(event.target.value)}
               />
@@ -234,62 +234,39 @@ export default function OrderListPage() {
               </select>
             </div>
             
-            <div className="space-y-1 md:col-span-2 lg:col-span-3">
+            <div className="space-y-1 md:col-span-4 lg:col-span-6">
               <p className="text-xs text-subtle-text">Date Range</p>
-              <div className="flex items-center gap-2">
-                <Input
-                  type="date"
-                  className="h-10 flex-1 min-w-0 text-sm pr-12"
-                  value={pendingStartDate}
-                  onChange={(e) => setPendingStartDate(e.target.value)}
-                />
-                <span className="text-subtle-text">-</span>
-                <Input
-                  type="date"
-                  className="h-10 flex-1 min-w-0 text-sm pr-12"
-                  value={pendingEndDate}
-                  onChange={(e) => setPendingEndDate(e.target.value)}
-                />
-              </div>
-            </div>
-
-            <div className="space-y-1 md:col-span-2 lg:col-span-3">
-              <p className="text-xs text-subtle-text">Total Paid</p>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-col gap-2 md:flex-row md:items-center">
+                <div className="flex items-center gap-2 flex-1 min-w-0">
+                  <Input
+                    type="date"
+                    className="h-10 flex-1 min-w-0 text-sm pr-12"
+                    value={pendingStartDate}
+                    onChange={(e) => setPendingStartDate(e.target.value)}
+                  />
+                  <span className="text-subtle-text">-</span>
+                  <Input
+                    type="date"
+                    className="h-10 flex-1 min-w-0 text-sm pr-12"
+                    value={pendingEndDate}
+                    onChange={(e) => setPendingEndDate(e.target.value)}
+                  />
+                </div>
                 <Button
-                variant="outline"
-                className="border-sidebar-border"
-                onClick={handleFilterSubmit}
-                disabled={isLoading || isFiltering}
-              >
-                {isFiltering ? (
-                  <BlokLoader label="Filtering..." />
-                ) : (
-                  <>
-                    <Icon path={mdi.mdiFilterOutline} className="mr-2 h-4 w-4" />
-                    Filter
-                  </>
-                )}
-              </Button>
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  setKeyword("");
-                  setPendingKeyword("");
-                  setStatusFilter(STATUS_ALL);
-                  setPendingStatusFilter(STATUS_ALL);
-                  setStartDate("");
-                  setPendingStartDate("");
-                  setEndDate("");
-                  setPendingEndDate("");
-                  setMinPrice("");
-                  setPendingMinPrice("");
-                  setMaxPrice("");
-                  setPendingMaxPrice("");
-                }}
-              >
-                Clear
-              </Button>
+                  variant="outline"
+                  className="border-sidebar-border md:shrink-0"
+                  onClick={handleFilterSubmit}
+                  disabled={isLoading || isFiltering}
+                >
+                  {isFiltering ? (
+                    <BlokLoader label="Filtering..." />
+                  ) : (
+                    <>
+                      <Icon path={mdi.mdiFilterOutline} className="mr-2 h-4 w-4" />
+                      Filter
+                    </>
+                  )}
+                </Button>
               </div>
             </div>
           </div>

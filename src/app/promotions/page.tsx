@@ -368,9 +368,6 @@ export default function PromotionsPage() {
                   Filter
                 </>}
               </Button>
-              <Button variant="ghost" onClick={resetFilters}>
-                Clear
-              </Button>
             </div>
           </div>
 
@@ -418,8 +415,18 @@ export default function PromotionsPage() {
                 ) : (
                   promotions.map((promotion) => (
                     <tr key={promotion.ID} className="border-b border-sidebar-border/70">
-                      <td className="px-4 py-3 font-medium">{promotion.Code || "N/A"}</td>
-                      <td className="px-4 py-3">{promotion.Name || "N/A"}</td>
+                      <td className="px-4 py-3">
+                        <button
+                          type="button"
+                          className="text-left text-primary hover:underline"
+                          onClick={() => openEditPromotion(promotion)}
+                        >
+                          {promotion.Code || "N/A"}
+                        </button>
+                      </td>
+                      <td className="px-4 py-3">
+                        {promotion.Name || "N/A"}
+                      </td>
                       <td className="px-4 py-3">{getPromotionTypeLabel(promotion)}</td>
                       <td className="px-4 py-3">{promotion?.xp?.MessageEn || "N/A"}</td>
                       <td className="px-4 py-3">{formatDate(promotion.StartDate)}</td>

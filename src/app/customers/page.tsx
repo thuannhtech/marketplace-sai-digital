@@ -50,6 +50,7 @@ export default function CustomersPage() {
   const pageSize = 20;
   const [isSearching, setIsSearching] = useState(false);
   const [isFiltering, setIsFiltering] = useState(false);
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
 
   const fetchCustomers = useCallback(async () => {
     setIsLoading(true);
@@ -125,22 +126,6 @@ export default function CustomersPage() {
       setIsFiltering(false);
     });
   }
-
-  const handleResetFilters = () => {
-    setSearchQuery("");
-    setPendingSearchQuery("");
-    setAccountType("");
-    setPendingAccountType("");
-    setConfirmedEmail("");
-    setPendingConfirmedEmail("");
-    setStatus("");
-    setPendingStatus("");
-    setDateFrom("");
-    setPendingDateFrom("");
-    setDateTo("");
-    setPendingDateTo("");
-    setPage(1);
-  };
 
   // Helper effect to refetch when page changes, if we want auto-fetch on pagination
   useEffect(() => {
@@ -270,9 +255,6 @@ export default function CustomersPage() {
                   </>
                 )}
               </Button>
-              <Button variant="ghost" onClick={handleResetFilters}>
-                Clear
-              </Button>
             </div>
           </div>
 
@@ -282,115 +264,115 @@ export default function CustomersPage() {
         </CardContent>
       </Card>
 
-      {/* Table Section */}
-      <div className="bg-card border border-sidebar-border rounded-lg shadow-sm overflow-hidden">
-        
-        <div className="px-4 py-3 border-b border-sidebar-border flex items-center justify-between bg-muted/20">
-          <h2 className="text-sm font-semibold text-body-text">Total {totalCount}</h2>
-        </div>
+      <Card className="border-sidebar-border">
+        <CardContent className="p-0">
+          <div className="w-full overflow-x-auto">
+            <table className="w-full min-w-[1100px] text-sm text-left">
+              <thead className="bg-muted">
+                <tr className="border-b border-sidebar-border">
+                  <th className="px-4 py-3 font-semibold">ID</th>
+                  <th className="px-4 py-3 font-semibold">Name</th>
+                  <th className="px-4 py-3 font-semibold">Email</th>
+                  <th className="px-4 py-3 font-semibold">Account Type</th>
+                  <th className="px-4 py-3 font-semibold">Date of Birth</th>
+                  <th className="px-4 py-3 font-semibold">Confirmed Email</th>
+                  <th className="px-4 py-3 font-semibold">Status</th>
+                  <th className="px-4 py-3 font-semibold">Created Date</th>
+                  <th className="px-4 py-3 font-semibold">Phone</th>
+                </tr>
+              </thead>
+              <tbody>
+                {isLoading ? (
+                  <tr>
+                    <td className="px-4 py-8 text-center text-subtle-text" colSpan={9}>
+                      <div className="flex items-center justify-center gap-2">
+                        <Icon path={mdi.mdiLoading} className="h-5 w-5 animate-spin" />
+                        Loading customers...
+                      </div>
+                    </td>
+                  </tr>
+                ) : error ? (
+                  <tr>
+                    <td className="px-4 py-8 text-center text-red-500" colSpan={9}>
+                      {error}
+                    </td>
+                  </tr>
+                ) : customers.length === 0 ? (
+                  <tr>
+                    <td className="px-4 py-8 text-center text-subtle-text" colSpan={9}>
+                      No customers found. Try adjusting your filters.
+                    </td>
+                  </tr>
+                ) : (
+                  customers.map((user) => {
+                    const dobMonth = user.xp?.PersonalInformation?.DOB?.Month;
+                    const dobDay = user.xp?.PersonalInformation?.DOB?.Day;
+                    const dobDisplay =
+                      dobMonth && dobDay ? `${String(dobDay).padStart(2, "0")}/${String(dobMonth).padStart(2, "0")}` : "N/A";
+                    const isConfirmed = user.xp?.PersonalInformation?.IsConfirmedEmail;
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm text-left">
-            <thead className="text-xs text-subtle-text uppercase bg-muted/50 border-b border-sidebar-border whitespace-nowrap">
-              <tr>
-                <th className="px-4 py-3 font-medium">ID</th>
-                <th className="px-4 py-3 font-medium">Name</th>
-                <th className="px-4 py-3 font-medium">Email</th>
-                <th className="px-4 py-3 font-medium">Account Type</th>
-                <th className="px-4 py-3 font-medium">Date of Birth</th>
-                <th className="px-4 py-3 font-medium">Confirmed Email</th>
-                <th className="px-4 py-3 font-medium">Status</th>
-                <th className="px-4 py-3 font-medium">Created Date</th>
-                <th className="px-4 py-3 font-medium">Phone</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-sidebar-border">
-              {isLoading ? (
-                <tr>
-                  <td colSpan={11} className="px-4 py-8 text-center text-subtle-text">
-                    <div className="flex items-center justify-center gap-2">
-                      <Icon path={mdi.mdiLoading} className="animate-spin h-5 w-5" />
-                      Loading customers...
-                    </div>
-                  </td>
-                </tr>
-              ) : error ? (
-                <tr>
-                  <td colSpan={11} className="px-4 py-8 text-center text-destructive">
-                    {error}
-                  </td>
-                </tr>
-              ) : customers.length === 0 ? (
-                <tr>
-                  <td colSpan={11} className="px-4 py-8 text-center text-subtle-text">
-                    No customers found. Try adjusting your filters.
-                  </td>
-                </tr>
-              ) : (
-                customers.map((user) => {
-                  const dobMonth = user.xp?.PersonalInformation?.DOB?.Month;
-                  const dobDay = user.xp?.PersonalInformation?.DOB?.Day;
-                  const dobDisplay = (dobMonth && dobDay) ? `${String(dobDay).padStart(2, '0')}/${String(dobMonth).padStart(2, '0')}` : "N/A";
-                  
-                  const isConfirmed = user.xp?.PersonalInformation?.IsConfirmedEmail;
-                  const isOptIn = user.xp?.PersonalInformation?.Marketing;
-                  
-                  return (
-                    <tr key={user.ID} className="hover:bg-muted/30 transition-colors whitespace-nowrap">
-                      <td className="px-4 py-3 font-mono text-xs">
-                        <Link href={`/customers/${user.ID}`} className="text-primary hover:underline">
-                          {user.ID}
-                        </Link>
-                      </td>
-                      <td className="px-4 py-3 font-medium">
-                        <Link href={`/customers/${user.ID}`} className="text-primary hover:underline">
-                          {`${user.FirstName || ""} ${user.LastName || ""}`.trim() || "N/A"}
-                        </Link>
-                      </td>
-                      <td className="px-4 py-3">{user.Email || "N/A"}</td>
-                      <td className="px-4 py-3">{user.xp?.PersonalInformation?.AccountType || "N/A"}</td>
-                      <td className="px-4 py-3">{dobDisplay}</td>
-                      <td className="px-4 py-3">
-                        <Badge colorScheme={isConfirmed ? "success" : "neutral"} className="text-[10px] px-2 py-0.5">
-                          {isConfirmed ? "Yes" : "No"}
-                        </Badge>
-                      </td>
-                      <td className="px-4 py-3">
-                        <Badge colorScheme={user.Active ? "success" : "danger"} className="text-[10px] px-2 py-0.5">
-                          {user.Active ? "Active" : "Inactive"}
-                        </Badge>
-                      </td>
-                      <td className="px-4 py-3">{formatDate(user.DateCreated)}</td>
-                      <td className="px-4 py-3">{user.xp?.PersonalInformation?.PhoneAreaCode ? `+${user.xp.PersonalInformation.PhoneAreaCode} ${user.Phone}` : (user.Phone || "N/A")}</td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-        
-        <div className="p-4 border-t border-sidebar-border flex items-center justify-between bg-muted/20">
-            <Button 
-              variant="outline" 
-              size="sm" 
-              disabled={page === 1 || isLoading}
-              onClick={() => setPage(p => Math.max(1, p - 1))}
-            >
-              Previous
-            </Button>
-            <span className="text-sm text-subtle-text">Page {page}</span>
-            <Button 
-              variant="outline" 
-              size="sm"
-              disabled={customers.length < pageSize || isLoading}
-              onClick={() => setPage(p => p + 1)}
-            >
-              Next
-            </Button>
-        </div>
-
-      </div>
+                    return (
+                      <tr key={user.ID} className="border-b border-sidebar-border/70 hover:bg-muted/50 transition-colors">
+                        <td className="px-4 py-3">
+                          <Link href={`/customers/${user.ID}`} className="text-primary hover:underline">
+                            {user.ID}
+                          </Link>
+                        </td>
+                        <td className="px-4 py-3">{`${user.FirstName || ""} ${user.LastName || ""}`.trim() || "N/A"}</td>
+                        <td className="px-4 py-3">{user.Email || "N/A"}</td>
+                        <td className="px-4 py-3">{user.xp?.PersonalInformation?.AccountType || "N/A"}</td>
+                        <td className="px-4 py-3">{dobDisplay}</td>
+                        <td className="px-4 py-3">
+                          <Badge colorScheme={isConfirmed ? "success" : "neutral"} className="text-[10px] px-2 py-0.5">
+                            {isConfirmed ? "Yes" : "No"}
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge colorScheme={user.Active ? "success" : "danger"} className="text-[10px] px-2 py-0.5">
+                            {user.Active ? "Active" : "Inactive"}
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-3 text-subtle-text">{formatDate(user.DateCreated)}</td>
+                        <td className="px-4 py-3">
+                          {user.xp?.PersonalInformation?.PhoneAreaCode
+                            ? `+${user.xp.PersonalInformation.PhoneAreaCode} ${user.Phone}`
+                            : user.Phone || "N/A"}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex flex-col gap-3 border-t border-sidebar-border px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-subtle-text">
+              Showing {totalCount === 0 ? 0 : (page - 1) * pageSize + 1}-{Math.min(page * pageSize, totalCount)} of {totalCount}
+            </p>
+            <div className="flex items-center gap-2 overflow-x-auto">
+              <Button
+                variant="outline"
+                className="border-sidebar-border"
+                disabled={page === 1 || isLoading}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                Previous
+              </Button>
+              <span className="text-subtle-text">
+                Page {page} of {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                className="border-sidebar-border"
+                disabled={page >= totalPages || isLoading}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              >
+                Next
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
