@@ -46,6 +46,41 @@ function getDisplayStatus(order: any) {
   return order.Status?.toUpperCase() || "Unknown";
 }
 
+function getOrderXp(order: any) {
+  return order?.xp || order?.Xp || {};
+}
+
+function isGuestOrder(order: any) {
+  return Boolean(getOrderXp(order)?.GuestCustomer);
+}
+
+function getGuestShippingAddress(order: any) {
+  const xp = getOrderXp(order);
+  return xp?.ShippingAddress || xp?.shippingAddress || null;
+}
+
+function getCustomerFirstName(order: any) {
+  if (isGuestOrder(order)) {
+    return getGuestShippingAddress(order)?.FirstName || "N/A";
+  }
+  return order.FromUser?.FirstName || "N/A";
+}
+
+function getCustomerLastName(order: any) {
+  if (isGuestOrder(order)) {
+    return getGuestShippingAddress(order)?.LastName || "N/A";
+  }
+  return order.FromUser?.LastName || "N/A";
+}
+
+function getCustomerDisplay(order: any) {
+  const xp = getOrderXp(order);
+  if (isGuestOrder(order)) {
+    return xp?.Email || order.FromUser?.Email || "Guest Customer";
+  }
+  return order.FromUser?.Username || order.FromCompany?.Name || "N/A";
+}
+
 function BlokLoader({ label }: { label: string }) {
   return (
     <span className="inline-flex items-center gap-2 text-sm font-medium text-neutral-fg" aria-live="polite">
@@ -127,13 +162,17 @@ export default function OrderListPage() {
     const normalizedKeyword = keyword.trim().toLowerCase();
 
     return orders.filter((order) => {
+      const firstName = getCustomerFirstName(order).toLowerCase();
+      const lastName = getCustomerLastName(order).toLowerCase();
+      const customerDisplay = getCustomerDisplay(order).toLowerCase();
+
       // Search by ID, First Name, Last Name, or Customer ID
       const matchesKeyword =
         !normalizedKeyword ||
         order.ID?.toLowerCase().includes(normalizedKeyword) ||
-        order.FromUser?.FirstName?.toLowerCase().includes(normalizedKeyword) ||
-        order.FromUser?.LastName?.toLowerCase().includes(normalizedKeyword) ||
-        order.FromUser?.Username?.toLowerCase().includes(normalizedKeyword);
+        firstName.includes(normalizedKeyword) ||
+        lastName.includes(normalizedKeyword) ||
+        customerDisplay.includes(normalizedKeyword);
 
       const matchesStatus = statusFilter === STATUS_ALL || order.Status?.toLowerCase() === statusFilter.toLowerCase();
 
@@ -320,9 +359,9 @@ export default function OrderListPage() {
                         </Link>
                       </td>
                       <td className="px-4 py-3 text-subtle-text">{formatDate(order.DateSubmitted || order.DateCreated)}</td>
-                      <td className="px-4 py-3">{order.FromUser?.FirstName || "N/A"}</td>
-                      <td className="px-4 py-3">{order.FromUser?.LastName || "N/A"}</td>
-                      <td className="px-4 py-3">{order.FromUser?.Username || order.FromCompany?.Name || "N/A"}</td>
+                      <td className="px-4 py-3">{getCustomerFirstName(order)}</td>
+                      <td className="px-4 py-3">{getCustomerLastName(order)}</td>
+                      <td className="px-4 py-3">{getCustomerDisplay(order)}</td>
                       <td className="px-4 py-3 font-medium">{formatPrice(order.Total)}</td>
                       <td className="px-4 py-3">
                         <Badge colorScheme={getStatusColor(getDisplayStatus(order))}>

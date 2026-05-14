@@ -42,11 +42,44 @@ function getStatusColor(status?: string) {
 
 function getDisplayStatus(order: any) {
   const s = order.Status?.toLowerCase();
+  if(order.xp?.Substatus === 'PROCESSING') return "PROCESSING";
+  if(order.xp?.Substatus === 'PROBLEM') return "PROBLEM";
   if (s === "open") return "OPEN";
   if (s === "completed") return "COMPLETED";
   if (s === "canceled") return "CANCELLED";
 
   return order.Status || "Unknown";
+}
+
+function getOrderXp(order: any) {
+  return order?.xp || order?.Xp || {};
+}
+
+function isGuestOrder(order: any) {
+  return Boolean(getOrderXp(order)?.GuestCustomer);
+}
+
+function getGuestShippingAddress(order: any) {
+  const xp = getOrderXp(order);
+  return xp?.ShippingAddress || xp?.shippingAddress || null;
+}
+
+function getCustomerId(order: any) {
+  return isGuestOrder(order) ? "Guest Customer" : order.FromUser?.ID || "N/A";
+}
+
+function getCustomerName(order: any) {
+  if (isGuestOrder(order)) {
+    const shippingAddress = getGuestShippingAddress(order);
+    const fullName = `${shippingAddress?.FirstName || ""} ${shippingAddress?.LastName || ""}`.trim();
+    return fullName || "Guest Customer";
+  }
+  return order.FromUser ? `${order.FromUser.FirstName || ""} ${order.FromUser.LastName || ""}`.trim() || "N/A" : "N/A";
+}
+
+function getCustomerEmail(order: any) {
+  const xp = getOrderXp(order);
+  return isGuestOrder(order) ? xp?.Email || order.FromUser?.Email || "N/A" : order.FromUser?.Email || "N/A";
 }
 
 function CollapsibleSection({ title, defaultOpen = false, children }: { title: string, defaultOpen?: boolean, children: React.ReactNode }) {
@@ -255,9 +288,9 @@ export default function OrderDetailPage() {
           </CollapsibleSection>
 
           <CollapsibleSection title="Customer Information">
-            <InfoRow label="Customer ID" value={order.FromUser?.ID || "N/A"} />
-            <InfoRow label="Customer Name" value={order.FromUser ? `${order.FromUser.FirstName || ""} ${order.FromUser.LastName || ""}`.trim() : "N/A"} />
-            <InfoRow label="Customer Email Address" value={order.FromUser?.Email || "N/A"} />
+            <InfoRow label="Customer ID" value={getCustomerId(order)} />
+            <InfoRow label="Customer Name" value={getCustomerName(order)} />
+            <InfoRow label="Customer Email Address" value={getCustomerEmail(order)} />
           </CollapsibleSection>
 
           <CollapsibleSection title="Delivery Information">
@@ -276,17 +309,20 @@ export default function OrderDetailPage() {
           </CollapsibleSection>
 
           <CollapsibleSection title="Shipping Address">
-            {order.ResolvedShippingAddress ? (
+            {(() => {
+              const shippingAddress = isGuestOrder(order) ? getGuestShippingAddress(order) : order.ResolvedShippingAddress;
+              return shippingAddress ? (
               <div className="space-y-1">
-                <p>{order.ResolvedShippingAddress.FirstName} {order.ResolvedShippingAddress.LastName}</p>
-                <p>{order.ResolvedShippingAddress.Street1}</p>
-                {order.ResolvedShippingAddress.Street2 && <p>{order.ResolvedShippingAddress.Street2}</p>}
-                <p>{order.ResolvedShippingAddress.City}</p>
-                <p>{order.ResolvedShippingAddress.Country}</p>
+                <p>{shippingAddress.FirstName} {shippingAddress.LastName}</p>
+                <p>{shippingAddress.Street1}</p>
+                {shippingAddress.Street2 && <p>{shippingAddress.Street2}</p>}
+                <p>{shippingAddress.City}</p>
+                <p>{shippingAddress.Country}</p>
               </div>
-            ) : (
+              ) : (
               <p className="text-subtle-text">No shipping address found (Order level ShippingAddressID is missing).</p>
-            )}
+              );
+            })()}
           </CollapsibleSection>
 
           <CollapsibleSection title="Billing Address">

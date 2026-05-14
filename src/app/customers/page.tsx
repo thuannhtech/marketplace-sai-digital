@@ -25,6 +25,17 @@ function formatDate(dateStr?: string) {
   }
 }
 
+function normalizeAccountTypeLabel(value: unknown) {
+  if (value === 0 || value === "0") return "Personal";
+  if (value === 1 || value === "1") return "Business";
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "personal") return "Personal";
+    if (normalized === "business" || normalized === "bussiness") return "Business";
+  }
+  return "N/A";
+}
+
 export default function CustomersPage() {
   const [customers, setCustomers] = useState<any[]>([]);
   const [totalCount, setTotalCount] = useState(0);
@@ -59,15 +70,13 @@ export default function CustomersPage() {
     // Build filters object
     const filters: any = {};
     
-    // OrderCloud Users endpoint allows filtering by xp. 
-    // E.g., xp.PersonalInformation.AccountType=B2B
+    // AccountType is stored as 0 = Personal, 1 = Business.
+    // Keep business tolerant of older string values still present in some records.
     if (accountType) {
-      // Some environments have legacy typo value "Bussiness".
-      // Use an OR-filter so selecting "Business" still returns those records.
-      if (accountType === "Business") {
-        filters["xp.PersonalInformation.AccountType"] = "*Business*|*Bussiness*";
+      if (accountType === "1") {
+        filters["xp.PersonalInformation.AccountType"] = "1|*Business*|*Bussiness*";
       } else {
-        filters["xp.PersonalInformation.AccountType"] = `*${accountType}*`;
+        filters["xp.PersonalInformation.AccountType"] = accountType;
       }
     }
     
@@ -186,21 +195,8 @@ export default function CustomersPage() {
                 className="border-input focus:border-primary focus:ring-primary h-10 w-full rounded-md border bg-body-bg px-3 text-sm focus:ring-1 focus:outline-none"
               >
                 <option value="">Select account type</option>
-                <option value="Personal">Personal</option>
-                <option value="Business">Business</option>
-              </select>
-            </div>
-
-            <div className="space-y-1 md:col-span-2 lg:col-span-2">
-              <p className="text-xs text-subtle-text">Confirmed Email</p>
-              <select
-                value={pendingConfirmedEmail}
-                onChange={(e) => setPendingConfirmedEmail(e.target.value)}
-                className="border-input focus:border-primary focus:ring-primary h-10 w-full rounded-md border bg-body-bg px-3 text-sm focus:ring-1 focus:outline-none"
-              >
-                <option value="">Select status</option>
-                <option value="true">True</option>
-                <option value="false">False</option>
+                <option value="0">Personal</option>
+                <option value="1">Business</option>
               </select>
             </div>
 
@@ -271,14 +267,12 @@ export default function CustomersPage() {
               <thead className="bg-muted">
                 <tr className="border-b border-sidebar-border">
                   <th className="px-4 py-3 font-semibold">ID</th>
-                  <th className="px-4 py-3 font-semibold">Name</th>
+                  <th className="px-4 py-3 font-semibold">First Name</th>
+                  <th className="px-4 py-3 font-semibold">Last Name</th>
                   <th className="px-4 py-3 font-semibold">Email</th>
                   <th className="px-4 py-3 font-semibold">Account Type</th>
-                  <th className="px-4 py-3 font-semibold">Date of Birth</th>
-                  <th className="px-4 py-3 font-semibold">Confirmed Email</th>
                   <th className="px-4 py-3 font-semibold">Status</th>
                   <th className="px-4 py-3 font-semibold">Created Date</th>
-                  <th className="px-4 py-3 font-semibold">Phone</th>
                 </tr>
               </thead>
               <tbody>
@@ -318,14 +312,11 @@ export default function CustomersPage() {
                             {user.ID}
                           </Link>
                         </td>
-                        <td className="px-4 py-3">{`${user.FirstName || ""} ${user.LastName || ""}`.trim() || "N/A"}</td>
+                        <td className="px-4 py-3">{user.FirstName || "N/A"}</td>
+                        <td className="px-4 py-3">{user.LastName || "N/A"}</td>
                         <td className="px-4 py-3">{user.Email || "N/A"}</td>
-                        <td className="px-4 py-3">{user.xp?.PersonalInformation?.AccountType || "N/A"}</td>
-                        <td className="px-4 py-3">{dobDisplay}</td>
                         <td className="px-4 py-3">
-                          <Badge colorScheme={isConfirmed ? "success" : "neutral"} className="text-[10px] px-2 py-0.5">
-                            {isConfirmed ? "Yes" : "No"}
-                          </Badge>
+                          {normalizeAccountTypeLabel(user.xp?.AccountType)}
                         </td>
                         <td className="px-4 py-3">
                           <Badge colorScheme={user.Active ? "success" : "danger"} className="text-[10px] px-2 py-0.5">
@@ -333,11 +324,6 @@ export default function CustomersPage() {
                           </Badge>
                         </td>
                         <td className="px-4 py-3 text-subtle-text">{formatDate(user.DateCreated)}</td>
-                        <td className="px-4 py-3">
-                          {user.xp?.PersonalInformation?.PhoneAreaCode
-                            ? `+${user.xp.PersonalInformation.PhoneAreaCode} ${user.Phone}`
-                            : user.Phone || "N/A"}
-                        </td>
                       </tr>
                     );
                   })

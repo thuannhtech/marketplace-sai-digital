@@ -37,6 +37,25 @@ function formatDateTime(dateString?: string) {
   return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
 }
 
+function normalizeAccountType(value: unknown) {
+  if (value === 0 || value === "0") {
+    return { code: "0", label: "Personal" };
+  }
+  if (value === 1 || value === "1") {
+    return { code: "1", label: "Business" };
+  }
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "personal") {
+      return { code: "0", label: "Personal" };
+    }
+    if (normalized === "business" || normalized === "bussiness") {
+      return { code: "1", label: "Business" };
+    }
+  }
+  return { code: "", label: "N/A" };
+}
+
 function InfoRow({
   label,
   value,
@@ -141,7 +160,7 @@ export default function CustomerDetailPage() {
   const [addressForm, setAddressForm] = useState({
     firstName: "",
     lastName: "",
-    mobileAreaCode: "+614",
+    mobileAreaCode: "",
     mobile: "",
     companyName: "",
     street1: "",
@@ -188,7 +207,7 @@ export default function CustomerDetailPage() {
   const groups: any[] = data?.groups || [];
   const addresses: any[] = data?.addresses || [];
 
-  const accountType = customer?.xp?.PersonalInformation?.AccountType ?? "N/A";
+  const accountType = normalizeAccountType(customer?.xp?.AccountType);
   const confirmedEmail = customer?.xp?.PersonalInformation?.IsConfirmedEmail;
   const customerSince = customer?.xp?.DateRegistered;
   const createdIn = customer?.xp?.PurchasedFrom ?? customer?.xp?.CustomerCreatedIn ?? "N/A";
@@ -249,7 +268,7 @@ export default function CustomerDetailPage() {
     setAddressForm({
       firstName: "",
       lastName: "",
-      mobileAreaCode: "+614",
+      mobileAreaCode: "",
       mobile: "",
       companyName: "",
       street1: "",
@@ -349,7 +368,7 @@ export default function CustomerDetailPage() {
   function openEditAddressDialog(addr: any) {
     const phone: string = String(addr?.Phone || "");
     const areaCodeFromXp = addr?.xp?.MobileAreaCode ? String(addr.xp.MobileAreaCode) : "";
-    const fallbackArea = areaCodeFromXp || (phone.startsWith("+") ? phone.slice(0, 4) : "+614");
+    const fallbackArea = areaCodeFromXp || (phone.startsWith("+") ? phone.slice(0, 4) : "");
     const fallbackNumber =
       phone && phone.startsWith(fallbackArea) ? phone.slice(fallbackArea.length) : phone.replace(/^\+\d+/, "");
 
@@ -417,22 +436,6 @@ export default function CustomerDetailPage() {
           <InfoRow label="ID" value={customer.ID} />
           <InfoRow label="Email" value={customer.Email} />
           <InfoRow label="Created Date" value={formatDateTime(customer.DateCreated)} />
-          <InfoRow label="Customer Since" value={formatDateTime(customerSince)} />
-          <InfoRow label="Customer Created In" value={createdIn} />
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 sm:items-center">
-            <p className="text-xs font-semibold text-subtle-text uppercase tracking-wider">Confirmed Email</p>
-            <div className="sm:col-span-2 flex items-center gap-3">
-              <Switch
-                checked={Boolean(customerForm.confirmedEmail)}
-                onCheckedChange={(checked) => setCustomerForm((p) => ({ ...p, confirmedEmail: checked }))}
-                aria-label="Confirmed Email"
-              />
-              <span className="text-sm text-subtle-text">
-                {customerForm.confirmedEmail ? "Yes" : "No"}
-              </span>
-            </div>
-          </div>
-
           <div className="border-t border-sidebar-border/70 pt-3" />
 
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 sm:items-center">
@@ -473,7 +476,7 @@ export default function CustomerDetailPage() {
                   type="radio"
                   name="accountType"
                   value="Personal"
-                  checked={accountType === "Personal"}
+                  checked={accountType.code === "0"}
                   disabled
                   readOnly
                   className="h-4 w-4 accent-primary"
@@ -485,7 +488,7 @@ export default function CustomerDetailPage() {
                   type="radio"
                   name="accountType"
                   value="Business"
-                  checked={accountType === "Business"}
+                  checked={accountType.code === "1"}
                   disabled
                   readOnly
                   className="h-4 w-4 accent-primary"
