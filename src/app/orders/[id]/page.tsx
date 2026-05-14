@@ -79,15 +79,14 @@ function getOrderXp(order: any) {
 function getDisplayStatus(order: any) {
   const xp = getOrderXp(order);
   const subStatus = xp?.SubStatus?.toString().trim().toUpperCase();
-  const normalizedStatus = order.Status?.toString().trim().toLowerCase();
+  const normalizedStatus = order.Status?.toString().trim().toUpperCase();
 
-  if (subStatus === "PROCESSING") return "PROCESSING";
-  if (subStatus === "PROBLEM") return "PROBLEM";
-  if (normalizedStatus === "open") return "OPEN";
-  if (normalizedStatus === "completed") return "COMPLETED";
-  if (normalizedStatus === "canceled" || normalizedStatus === "cancelled") return "CANCELLED";
+  if (normalizedStatus === "COMPLETED") return "COMPLETED";
+  if (normalizedStatus === "CANCELED" || normalizedStatus === "CANCELLED") return "CANCELLED";
+  if (normalizedStatus === "OPEN") return subStatus === "PROCESSING" || subStatus === "PROBLEM" ? subStatus : "OPEN";
+  if (subStatus === "PROCESSING" || subStatus === "PROBLEM") return subStatus;
 
-  return order.Status?.toString().trim().toUpperCase() || "Unknown";
+  return normalizedStatus || "Unknown";
 }
 
 function isGuestOrder(order: any) {

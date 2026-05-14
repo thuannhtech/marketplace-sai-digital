@@ -49,11 +49,14 @@ function getStatusColor(status?: string) {
 function getDisplayStatus(order: any) {
   const xp = getOrderXp(order);
   const subStatus = xp?.SubStatus?.toString().trim().toUpperCase();
+  const normalizedStatus = order.Status?.toString().trim().toUpperCase();
 
-  if (subStatus === "PROCESSING") return "PROCESSING";
-  if (subStatus === "PROBLEM") return "PROBLEM";
+  if (normalizedStatus === "COMPLETED") return "COMPLETED";
+  if (normalizedStatus === "CANCELED" || normalizedStatus === "CANCELLED") return "CANCELLED";
+  if (normalizedStatus === "OPEN") return subStatus === "PROCESSING" || subStatus === "PROBLEM" ? subStatus : "OPEN";
+  if (subStatus === "PROCESSING" || subStatus === "PROBLEM") return subStatus;
 
-  return order.Status?.toUpperCase() || "Unknown";
+  return normalizedStatus || "Unknown";
 }
 
 function getOrderXp(order: any) {
