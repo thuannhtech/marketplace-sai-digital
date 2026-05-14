@@ -351,6 +351,7 @@ export async function createPromotion(payload: {
     if (!auth.success || !auth.token) throw new Error("Auth failed");
     const { Promotions, Tokens } = await import("ordercloud-javascript-sdk");
     Tokens.SetAccessToken(auth.token);
+    const buyerId = resolveOrderCloudBuyerId();
 
     const normalizedAmount = Number(payload.amount) || 0;
     const valueExpression =
@@ -376,6 +377,11 @@ export async function createPromotion(payload: {
         AllowAllUserGroups: payload.allowAllUserGroups !== false,
       },
     } as any);
+
+    await Promotions.SaveAssignment({
+      PromotionID: created.ID,
+      BuyerID: buyerId,
+    });
 
     return { success: true, data: JSON.parse(JSON.stringify(created)) };
   } catch (err: any) {
