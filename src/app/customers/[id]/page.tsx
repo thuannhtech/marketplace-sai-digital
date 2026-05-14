@@ -319,7 +319,6 @@ export default function CustomerDetailPage() {
     if (
       !addressForm.firstName.trim() ||
       !addressForm.lastName.trim() ||
-      !addressForm.mobileAreaCode.trim() ||
       !addressForm.mobile.trim() ||
       !addressForm.street1.trim()
     ) {
@@ -627,12 +626,6 @@ export default function CustomerDetailPage() {
                 Mobile <span className="text-destructive">*</span>
               </Label>
               <div className="flex gap-2">
-                <Input
-                  className="w-24"
-                  required
-                  value={addressForm.mobileAreaCode}
-                  onChange={(e) => setAddressForm((p) => ({ ...p, mobileAreaCode: e.target.value }))}
-                />
                 <Input
                   className="flex-1"
                   required

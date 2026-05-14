@@ -1,6 +1,34 @@
 "use server";
 
-import { Auth, Configuration } from "ordercloud-javascript-sdk";
+import { Auth, Configuration, Me } from "ordercloud-javascript-sdk";
+
+const ORDERCLOUD_IMPERSONATION_ROLES = [
+  "BuyerAdmin",
+  "BuyerReader",
+  "BuyerUserAdmin",
+  "BuyerUserReader",
+  "BuyerImpersonation",
+  "Shopper",
+  "AddressAdmin",
+  "MeAddressAdmin",
+  "MeAdmin",
+  "MeCreditCardAdmin",
+  "MeXpAdmin",
+  "PasswordReset",
+  "ShipmentAdmin",
+  "ShipmentReader",
+  "OrderAdmin",
+  "OrderReader",
+  "UnsubmittedOrderReader",
+  "OverrideUnitPrice",
+  "OverrideShipping",
+  "CreditCardAdmin",
+  "CreditCardReader",
+  "ProductAdmin",
+  "ProductReader",
+  "PromotionReader",
+  "PromotionAdmin",
+] as const;
 
 export async function getOrderCloudToken() {
   const clientID = process.env.NEXT_PUBLIC_ORDERCLOUD_CLIENT_ID || "";
@@ -49,6 +77,52 @@ export async function getOrderCloudToken() {
       errorMsg = error.errors.Errors[0].Message;
     }
     return { success: false, error: `Auth Error: ${errorMsg}` };
+  }
+}
+
+async function getOrderCloudImpersonationToken(buyerId: string, userId: string) {
+  const clientID = process.env.NEXT_PUBLIC_ORDERCLOUD_CLIENT_ID || "";
+  const clientSecret = process.env.ORDERCLOUD_CLIENT_SECRET || "";
+  const baseApiUrl = process.env.NEXT_PUBLIC_ORDERCLOUD_BASE_API_URL || "https://sandboxapi.ordercloud.io";
+
+  Configuration.Set({
+    baseApiUrl,
+    clientID,
+  });
+
+  const { Users } = await import("ordercloud-javascript-sdk");
+
+  try {
+    const buyerAccessToken = await Auth.ClientCredentials(
+      clientSecret,
+      clientID,
+      [...ORDERCLOUD_IMPERSONATION_ROLES],
+    );
+
+    const userToken = await Users.GetAccessToken(
+      buyerId,
+      userId,
+      {
+        ClientID: clientID,
+        Roles: [...ORDERCLOUD_IMPERSONATION_ROLES],
+      } as any,
+      {
+        accessToken: buyerAccessToken.access_token,
+      } as any,
+    );
+
+    return { success: true, token: userToken.access_token };
+  } catch (error: any) {
+    console.error("OrderCloud impersonation token error:", error);
+    let errorMsg = error instanceof Error ? error.message : "Unknown Error";
+
+    if (error.response?.data) {
+      errorMsg = typeof error.response.data === "string" ? error.response.data : JSON.stringify(error.response.data);
+    } else if (error.isOrderCloudError && error.errors && error.errors.Errors && error.errors.Errors[0]) {
+      errorMsg = error.errors.Errors[0].Message;
+    }
+
+    return { success: false, error: `Impersonation Auth Error: ${errorMsg}` };
   }
 }
 
@@ -110,10 +184,16 @@ export async function getOrderDetail(orderId: string) {
       Payments.List("All", orderId).catch(() => ({ Items: [] }))
     ]);
 
+    const impersonationAuth = order.FromUserID
+      ? await getOrderCloudImpersonationToken(order.FromCompanyID, order.FromUserID)
+      : { success: false, error: "Order is missing FromUserID." };
+
     let shippingAddress = null;
-    if (order.ShippingAddressID) {
+    if (order.ShippingAddressID && impersonationAuth.success && impersonationAuth.token) {
       try {
-        shippingAddress = await Me.GetAddress(order.ShippingAddressID);
+        shippingAddress = await Me.GetAddress(order.ShippingAddressID, {
+          accessToken: impersonationAuth.token,
+        } as any);
       } catch (err) {
         console.error("Failed to fetch Shipping Address using Me.GetAddress", err);
       }
@@ -147,7 +227,11 @@ export async function getOrderDetail(orderId: string) {
         try {
           let card = null;
           try {
-             card = await Me.GetCreditCard(payment.CreditCardID);
+            if (impersonationAuth.success && impersonationAuth.token) {
+              card = await Me.GetCreditCard(payment.CreditCardID, {
+                accessToken: impersonationAuth.token,
+              } as any);
+            }
           } catch(e) {
              if (order.FromCompanyID) {
                 card = await CreditCards.Get(order.FromCompanyID, payment.CreditCardID);
