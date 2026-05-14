@@ -35,14 +35,24 @@ function formatDate(dateString?: string) {
 
 function getStatusColor(status?: string) {
   if (!status) return "neutral";
-  const s = status.toLowerCase();
-  if (s === "open") return "primary";
-  if (s === "completed") return "success";
-  if (s === "canceled" || s === "cancelled") return "danger";
+  const normalizedStatus = status.trim().toLowerCase();
+
+  if (normalizedStatus === "open" || normalizedStatus === "processing") return "primary";
+  if (normalizedStatus === "completed") return "success";
+  if (normalizedStatus === "problem" || normalizedStatus === "canceled" || normalizedStatus === "cancelled") {
+    return "danger";
+  }
+
   return "neutral";
 }
 
 function getDisplayStatus(order: any) {
+  const xp = getOrderXp(order);
+  const subStatus = xp?.SubStatus?.toString().trim().toUpperCase();
+
+  if (subStatus === "PROCESSING") return "PROCESSING";
+  if (subStatus === "PROBLEM") return "PROBLEM";
+
   return order.Status?.toUpperCase() || "Unknown";
 }
 
@@ -78,7 +88,7 @@ function getCustomerDisplay(order: any) {
   if (isGuestOrder(order)) {
     return xp?.Email || order.FromUser?.Email || "Guest Customer";
   }
-  return order.FromUser?.Username || order.FromCompany?.Name || "N/A";
+  return `${order.FromUser?.FirstName} ${order.FromUser?.LastName}` || "N/A";
 }
 
 function BlokLoader({ label }: { label: string }) {
@@ -326,7 +336,6 @@ export default function OrderListPage() {
                   <th className="px-4 py-3 font-semibold">Submited Date</th>
                   <th className="px-4 py-3 font-semibold">First Name</th>
                   <th className="px-4 py-3 font-semibold">Last Name</th>
-                  <th className="px-4 py-3 font-semibold">Customer</th>
                   <th className="px-4 py-3 font-semibold">Total Paid</th>
                   <th className="px-4 py-3 font-semibold">Status</th>
                 </tr>
@@ -361,7 +370,6 @@ export default function OrderListPage() {
                       <td className="px-4 py-3 text-subtle-text">{formatDate(order.DateSubmitted || order.DateCreated)}</td>
                       <td className="px-4 py-3">{getCustomerFirstName(order)}</td>
                       <td className="px-4 py-3">{getCustomerLastName(order)}</td>
-                      <td className="px-4 py-3">{getCustomerDisplay(order)}</td>
                       <td className="px-4 py-3 font-medium">{formatPrice(order.Total)}</td>
                       <td className="px-4 py-3">
                         <Badge colorScheme={getStatusColor(getDisplayStatus(order))}>

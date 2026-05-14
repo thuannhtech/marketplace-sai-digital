@@ -119,6 +119,8 @@ export async function getOrderDetail(orderId: string) {
       }
     }
 
+    console.log('shippingAddress', shippingAddress)
+
     let paymentInfo: any = {
       Provider: "N/A",
       Method: "N/A",

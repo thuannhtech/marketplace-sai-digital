@@ -6,16 +6,15 @@ import { ChangeEvent, ReactNode, memo, useCallback, useEffect, useMemo, useRef, 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Icon } from "@/lib/icon";
 import { createProduct, updateProduct } from "@/src/lib/api/products-api";
 
@@ -740,6 +739,7 @@ export default function ProductPage() {
   }
 
   function handleOpenCreateModal() {
+    clearMessage();
     setEditingProduct(null);
     setPendingLocalPublishProduct(null);
     setCreateForm(DEFAULT_CREATE_FORM);
@@ -1387,19 +1387,19 @@ export default function ProductPage() {
         </CardContent>
       </Card>
 
-      <Sheet open={isCreateModalOpen} onOpenChange={handleCreateModalOpenChange}>
-        <SheetContent
-          ref={createModalContentRef}
-          side="right"
-          className="w-full sm:max-w-2xl lg:max-w-4xl overflow-y-auto"
-        >
-          <SheetHeader>
-            <SheetTitle>{editingProduct ? "Update Model" : "Add New Model"}</SheetTitle>
-            <SheetDescription>
-              {editingProduct ? `Update ${editingProduct.modelName}` : "Create a new product model"}
-            </SheetDescription>
-          </SheetHeader>
-          <div className="space-y-4 px-4">
+      <Dialog open={isCreateModalOpen} onOpenChange={handleCreateModalOpenChange}>
+        <DialogContent className="border-sidebar-border p-0 sm:max-w-6xl">
+          <DialogHeader>
+            <div className="border-b border-sidebar-border px-6 py-5">
+              <DialogTitle className="text-xl font-semibold text-body-text">
+                {editingProduct ? "Update Model" : "Add New Model"}
+              </DialogTitle>
+              <p className="mt-1 text-sm text-subtle-text">
+                {editingProduct ? `Update ${editingProduct.modelName}` : "Create a new product model"}
+              </p>
+            </div>
+          </DialogHeader>
+          <div ref={createModalContentRef} className="max-h-[calc(100vh-14rem)] space-y-6 overflow-y-auto px-6 py-6">
             {isCreateModalBusy && (
               <div className="rounded-md border border-sidebar-border bg-neutral-bg px-3 py-2">
                 <BlokLoader
@@ -1447,176 +1447,199 @@ export default function ProductPage() {
                 </div>
               </div>
             ) : null}
-            {
-              editingProduct &&
-              <div className="space-y-1">
-              <label className="text-sm font-medium text-body-text" htmlFor="product-language">
-                Language
-              </label>
-              <select
-                id="product-language"
-                className="border-input focus:border-primary focus:ring-primary h-10 w-full rounded-md border bg-body-bg px-3 text-sm focus:ring-1 focus:outline-none"
-                value={createForm.language}
-                onChange={(event) => {
-                  const nextLanguage = event.target.value;
-                  if (editingProduct) {
-                    void handleEditLanguageChange(nextLanguage);
-                    return;
-                  }
-                  setCreateForm((prev) => ({ ...prev, language: nextLanguage }));
-                }}
-                disabled={isCreateModalBusy || !editingProduct}
-              >
-                {PRODUCT_LANGUAGE_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            }
+            <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+              <div className="space-y-6">
+                <section className="overflow-hidden rounded-2xl border border-sidebar-border">
+                  <div className="border-b border-sidebar-border px-5 py-3">
+                    <h2 className="font-semibold text-body-text">Basic Information</h2>
+                  </div>
+                  <div className="space-y-5 px-5 py-5">
+                    {editingProduct ? (
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-body-text" htmlFor="product-language">
+                          Language
+                        </label>
+                        <select
+                          id="product-language"
+                          className="border-input focus:border-primary focus:ring-primary h-10 w-full rounded-md border bg-body-bg px-3 text-sm focus:ring-1 focus:outline-none"
+                          value={createForm.language}
+                          onChange={(event) => {
+                            const nextLanguage = event.target.value;
+                            if (editingProduct) {
+                              void handleEditLanguageChange(nextLanguage);
+                              return;
+                            }
+                            setCreateForm((prev) => ({ ...prev, language: nextLanguage }));
+                          }}
+                          disabled={isCreateModalBusy || !editingProduct}
+                        >
+                          {PRODUCT_LANGUAGE_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    ) : null}
 
-            <div className="space-y-1">
-              <label className="text-sm font-medium text-body-text" htmlFor="model-name">
-                Model name
-              </label>
-              <Input
-                id="model-name"
-                value={createForm.model_name}
-                onChange={(event) =>
-                  setCreateForm((prev) => ({ ...prev, model_name: event.target.value }))
-                }
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <label className="text-sm font-medium text-body-text" htmlFor="price">
-                  Price
-                </label>
-                <Input
-                  id="price"
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  value={createForm.price}
-                  onChange={(event) =>
-                    setCreateForm((prev) => ({ ...prev, price: Number(event.target.value) || 0 }))
-                  }
-                  disabled={!canEditPriceAndQuantity}
-                />
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-body-text" htmlFor="model-name">
+                        Model name
+                      </label>
+                      <Input
+                        id="model-name"
+                        value={createForm.model_name}
+                        onChange={(event) =>
+                          setCreateForm((prev) => ({ ...prev, model_name: event.target.value }))
+                        }
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-body-text" htmlFor="price">
+                          Price
+                        </label>
+                        <Input
+                          id="price"
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          value={createForm.price}
+                          onChange={(event) =>
+                            setCreateForm((prev) => ({ ...prev, price: Number(event.target.value) || 0 }))
+                          }
+                          disabled={!canEditPriceAndQuantity}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-body-text" htmlFor="quantity">
+                          Quantity
+                        </label>
+                        <Input
+                          id="quantity"
+                          type="number"
+                          min={0}
+                          step="1"
+                          value={createForm.quantity}
+                          onChange={(event) =>
+                            setCreateForm((prev) => ({ ...prev, quantity: Number(event.target.value) || 0 }))
+                          }
+                          disabled={!canEditPriceAndQuantity}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                <section className="overflow-hidden rounded-2xl border border-sidebar-border">
+                  <div className="border-b border-sidebar-border px-5 py-3">
+                    <h2 className="font-semibold text-body-text">Description</h2>
+                  </div>
+                  <div className="space-y-5 px-5 py-5">
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-body-text" htmlFor="description">
+                        Product details
+                      </label>
+                      <HtmlDescriptionEditor
+                        value={createForm.desc}
+                        onChange={(desc) => setCreateForm((prev) => ({ ...prev, desc }))}
+                      />
+                    </div>
+                  </div>
+                </section>
               </div>
-              <div className="space-y-1">
-                <label className="text-sm font-medium text-body-text" htmlFor="quantity">
-                  Quantity
-                </label>
-                <Input
-                  id="quantity"
-                  type="number"
-                  min={0}
-                  step="1"
-                  value={createForm.quantity}
-                  onChange={(event) =>
-                    setCreateForm((prev) => ({ ...prev, quantity: Number(event.target.value) || 0 }))
-                  }
-                  disabled={!canEditPriceAndQuantity}
-                />
+
+              <div className="space-y-6">
+                <section className="overflow-hidden rounded-2xl border border-sidebar-border">
+                  <div className="border-b border-sidebar-border px-5 py-3">
+                    <h2 className="font-semibold text-body-text">Media</h2>
+                  </div>
+                  <div className="space-y-5 px-5 py-5">
+                    {selectedMediaItemIds.length > 0 ? (
+                      <div className="space-y-2">
+                        <p className="text-sm font-medium text-body-text">
+                          Selected media library images ({selectedMediaItemIds.length})
+                        </p>
+                        <SelectedMediaLibraryGrid
+                          items={selectedMediaItems}
+                          isBusy={isCreateModalBusy}
+                          onRemove={removeSelectedMediaItem}
+                        />
+                      </div>
+                    ) : null}
+
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-body-text" htmlFor="product-images">
+                        Basic Model Image
+                      </label>
+                      <input
+                        ref={productImagesInputRef}
+                        id="product-images"
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        onChange={handleImageSelect}
+                        disabled={isProcessingImages || isCreating}
+                        className="hidden"
+                      />
+                      <div className="rounded-2xl border border-sidebar-border bg-[#f7f5f2] p-4">
+                        <div className="flex flex-wrap gap-3">
+                          <PickerActionButton
+                            onClick={() => void handleLoadMediaLibrary()}
+                            disabled={
+                              isMediaLibraryLoading ||
+                              isUploadingToMediaLibrary ||
+                              isProcessingImages ||
+                              isCreating ||
+                              !isInitialized
+                            }
+                          >
+                            <Icon path={mdi.mdiImageMultipleOutline} className="h-4 w-4" />
+                            {isMediaLibraryLoading ? "Loading media..." : "Sitecore Media Library"}
+                          </PickerActionButton>
+                          <PickerActionButton
+                            onClick={() => productImagesInputRef.current?.click()}
+                            disabled={isProcessingImages || isCreating}
+                          >
+                            <Icon path={mdi.mdiTrayArrowUp} className="h-4 w-4" />
+                            Click to upload images
+                          </PickerActionButton>
+                        </div>
+                      </div>
+                      {isProcessingImages ? <BlokLoader label="Preparing selected images..." /> : null}
+                      <SelectedImagesGrid
+                        selectedImages={selectedImages}
+                        isProcessingImages={isProcessingImages}
+                        isCreating={isCreating}
+                        isUploadingToMediaLibrary={isUploadingToMediaLibrary}
+                        onRemove={removeSelectedImage}
+                      />
+                      <p className="text-xs text-subtle-text">
+                        Selected images are uploaded to Sitecore Media Library automatically when you click{" "}
+                        {editingProduct ? "Save Changes." : "Create Model."}
+                      </p>
+                    </div>
+
+                    {hasLoadedMediaLibraryOptions ? (
+                      <div className="space-y-2">
+                        <p className="text-sm font-medium text-body-text">
+                          Choose images from Media Library ({selectedMediaItemIds.length} selected)
+                        </p>
+                        <MediaLibraryGrid
+                          mediaLibraryOptions={mediaLibraryOptions}
+                          selectedMediaItemIds={selectedMediaItemIds}
+                          isCreateModalBusy={isCreateModalBusy}
+                          onToggle={toggleSelectedMediaItem}
+                        />
+                      </div>
+                    ) : null}
+                  </div>
+                </section>
               </div>
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-sm font-medium text-body-text" htmlFor="description">
-                Description
-              </label>
-              <HtmlDescriptionEditor
-                value={createForm.desc}
-                onChange={(desc) => setCreateForm((prev) => ({ ...prev, desc }))}
-              />
-            </div>
-
-            <div className="space-y-2">
-              {selectedMediaItemIds.length > 0 ? (
-                <>
-                  <p className="text-sm font-medium text-body-text">
-                    Selected media library images ({selectedMediaItemIds.length})
-                  </p>
-                  <SelectedMediaLibraryGrid
-                    items={selectedMediaItems}
-                    isBusy={isCreateModalBusy}
-                    onRemove={removeSelectedMediaItem}
-                  />
-                </>
-              ) : null}
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-body-text" htmlFor="product-images">
-                Basic Model Image
-              </label>
-              <input
-                ref={productImagesInputRef}
-                id="product-images"
-                type="file"
-                accept="image/*"
-                multiple
-                onChange={handleImageSelect}
-                disabled={isProcessingImages || isCreating}
-                className="hidden"
-              />
-              <div className="rounded-2xl border border-sidebar-border bg-[#f7f5f2] p-4">
-                <div className="flex flex-wrap gap-3">
-                  <PickerActionButton
-                    onClick={() => void handleLoadMediaLibrary()}
-                    disabled={
-                      isMediaLibraryLoading ||
-                      isUploadingToMediaLibrary ||
-                      isProcessingImages ||
-                      isCreating ||
-                      !isInitialized
-                    }
-                  >
-                    <Icon path={mdi.mdiImageMultipleOutline} className="h-4 w-4" />
-                    {isMediaLibraryLoading ? "Loading media..." : "Sitecore Media Library"}
-                  </PickerActionButton>
-                  <PickerActionButton
-                    onClick={() => productImagesInputRef.current?.click()}
-                    disabled={isProcessingImages || isCreating}
-                  >
-                    <Icon path={mdi.mdiTrayArrowUp} className="h-4 w-4" />
-                    Click to upload images
-                  </PickerActionButton>
-                </div>
-              </div>
-              {isProcessingImages ? <BlokLoader label="Preparing selected images..." /> : null}
-              <SelectedImagesGrid
-                selectedImages={selectedImages}
-                isProcessingImages={isProcessingImages}
-                isCreating={isCreating}
-                isUploadingToMediaLibrary={isUploadingToMediaLibrary}
-                onRemove={removeSelectedImage}
-              />
-              <p className="text-xs text-subtle-text">
-                Selected images are uploaded to Sitecore Media Library automatically when you click{" "}
-                {editingProduct ? "Save Changes." : "Create Model."}
-              </p>
-            </div>
-
-            <div className="space-y-2">
-              {hasLoadedMediaLibraryOptions ? (
-                <>
-                  <p className="text-sm font-medium text-body-text">
-                    Choose images from Media Library ({selectedMediaItemIds.length} selected)
-                  </p>
-                  <MediaLibraryGrid
-                    mediaLibraryOptions={mediaLibraryOptions}
-                    selectedMediaItemIds={selectedMediaItemIds}
-                    isCreateModalBusy={isCreateModalBusy}
-                    onToggle={toggleSelectedMediaItem}
-                  />
-                </>
-              ) : null}
             </div>
           </div>
-          <SheetFooter>
+          <DialogFooter className="border-t border-sidebar-border px-6 py-4">
             <Button
               variant="outline"
               className="border-sidebar-border"
@@ -1640,7 +1663,7 @@ export default function ProductPage() {
                 </>
               )}
             </Button>
-          </SheetFooter>
+          </DialogFooter>
 
           {isLocalPublishConfirmOpen && pendingLocalPublishProduct ? (
             <div className="absolute inset-0 z-[60] flex items-start justify-center bg-black/35 px-4 py-16">
@@ -1720,8 +1743,8 @@ export default function ProductPage() {
               </div>
             </div>
           ) : null}
-        </SheetContent>
-      </Sheet>
+        </DialogContent>
+      </Dialog>
 
       <ProductTable
         isFetching={isFetching}

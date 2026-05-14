@@ -33,26 +33,50 @@ function formatDate(dateString?: string) {
 
 function getStatusColor(status?: string) {
   if (!status) return "neutral";
-  const s = status.toLowerCase();
-  if (s === "open" || s === "submitted" || s === "awaitingapproval" || s === "processing" || s === "confirmed") return "primary";
-  if (s === "completed" || s === "delivered" || s === "closed") return "success";
-  if (s === "canceled" || s === "declined" || s === "problem" || s === "cancelled") return "danger";
+  const normalizedStatus = status.trim().toLowerCase();
+
+  if (
+    normalizedStatus === "open" ||
+    normalizedStatus === "submitted" ||
+    normalizedStatus === "awaitingapproval" ||
+    normalizedStatus === "processing" ||
+    normalizedStatus === "confirmed"
+  ) {
+    return "primary";
+  }
+
+  if (normalizedStatus === "completed" || normalizedStatus === "delivered" || normalizedStatus === "closed") {
+    return "success";
+  }
+
+  if (
+    normalizedStatus === "canceled" ||
+    normalizedStatus === "cancelled" ||
+    normalizedStatus === "declined" ||
+    normalizedStatus === "problem"
+  ) {
+    return "danger";
+  }
+
   return "neutral";
-}
-
-function getDisplayStatus(order: any) {
-  const s = order.Status?.toLowerCase();
-  if(order.xp?.Substatus === 'PROCESSING') return "PROCESSING";
-  if(order.xp?.Substatus === 'PROBLEM') return "PROBLEM";
-  if (s === "open") return "OPEN";
-  if (s === "completed") return "COMPLETED";
-  if (s === "canceled") return "CANCELLED";
-
-  return order.Status || "Unknown";
 }
 
 function getOrderXp(order: any) {
   return order?.xp || order?.Xp || {};
+}
+
+function getDisplayStatus(order: any) {
+  const xp = getOrderXp(order);
+  const subStatus = xp?.SubStatus?.toString().trim().toUpperCase();
+  const normalizedStatus = order.Status?.toString().trim().toLowerCase();
+
+  if (subStatus === "PROCESSING") return "PROCESSING";
+  if (subStatus === "PROBLEM") return "PROBLEM";
+  if (normalizedStatus === "open") return "OPEN";
+  if (normalizedStatus === "completed") return "COMPLETED";
+  if (normalizedStatus === "canceled" || normalizedStatus === "cancelled") return "CANCELLED";
+
+  return order.Status?.toString().trim().toUpperCase() || "Unknown";
 }
 
 function isGuestOrder(order: any) {
@@ -294,10 +318,8 @@ export default function OrderDetailPage() {
           </CollapsibleSection>
 
           <CollapsibleSection title="Delivery Information">
-            <InfoRow label="DeliveryMethod" value={order.xp?.DeliveryMethod || "STANDARD"} />
-            <InfoRow label="DeliveryCost" value={order.xp?.DeliveryCost || "14.95"} />
-            <InfoRow label="ETA" value={order.xp?.ETA ? new Date(order.xp.ETA).toISOString().slice(0, 10) : "2024-11-12"} type="date" />
-            <InfoRow label="Delivery Instruction" value={order.xp?.DeliveryInstruction || ""} type="textarea" />
+            <InfoRow label="DeliveryMethod" value={order.xp?.ShippingMethodName || "STANDARD"} />
+            <InfoRow label="DeliveryCost" value={order.ShippingCost || "14.95"} />
           </CollapsibleSection>
 
           <CollapsibleSection title="Payment Information">
@@ -330,8 +352,7 @@ export default function OrderDetailPage() {
               <div className="space-y-1">
                 <p>{order.BillingAddress.FirstName} {order.BillingAddress.LastName}</p>
                 <p>{order.BillingAddress.Street1}</p>
-                {order.BillingAddress.Street2 && <p>{order.BillingAddress.Street2}</p>}
-                <p>{order.BillingAddress.City}</p>
+                <p>{order.BillingAddress.Phone}</p>
                 <p>{order.BillingAddress.Country}</p>
               </div>
             ) : (
