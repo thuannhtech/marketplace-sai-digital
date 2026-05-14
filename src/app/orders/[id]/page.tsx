@@ -19,6 +19,17 @@ function formatPrice(value: number) {
   }).format(value);
 }
 
+function formatPercentage(value: unknown) {
+  if (value === null || value === undefined || value === "") return "N/A";
+  if (typeof value === "string" && value.includes("%")) return value;
+
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return String(value);
+
+  const normalized = parsed > 0 && parsed < 1 ? parsed * 100 : parsed;
+  return `${normalized}%`;
+}
+
 function formatDate(dateString?: string) {
   if (!dateString) return "N/A";
   return new Date(dateString).toLocaleDateString("en-US", {
@@ -104,6 +115,11 @@ function getCustomerName(order: any) {
 function getCustomerEmail(order: any) {
   const xp = getOrderXp(order);
   return isGuestOrder(order) ? xp?.Email || order.FromUser?.Email || "N/A" : order.FromUser?.Email || "N/A";
+}
+
+function getOrderGst(order: any) {
+  const xp = getOrderXp(order);
+  return xp?.GST ?? xp?.Gst ?? xp?.gst ?? null;
 }
 
 function CollapsibleSection({ title, defaultOpen = false, children }: { title: string, defaultOpen?: boolean, children: React.ReactNode }) {
@@ -308,6 +324,8 @@ export default function OrderDetailPage() {
             <InfoRow label="Qty Ordered" value={order.LineItemCount || 0} />
             <InfoRow label="SubTotal" value={formatPrice(order.Subtotal || 0)} />
             <InfoRow label="Discount" value={formatPrice(order.PromotionDiscount || 0)} />
+            <InfoRow label="GST" value={formatPercentage(getOrderGst(order))} />
+            <InfoRow label="Tax Cost" value={formatPrice(order.TaxCost || 0)} />
             <InfoRow label="Total Paid" value={formatPrice(order.Total || 0)} />
           </CollapsibleSection>
 
