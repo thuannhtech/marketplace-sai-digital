@@ -337,6 +337,7 @@ export default function OrderListPage() {
                 <tr className="border-b border-sidebar-border">
                   <th className="px-4 py-3 font-semibold">Order Number</th>
                   <th className="px-4 py-3 font-semibold">Submited Date</th>
+                  <th className="px-4 py-3 font-semibold">Email</th>
                   <th className="px-4 py-3 font-semibold">First Name</th>
                   <th className="px-4 py-3 font-semibold">Last Name</th>
                   <th className="px-4 py-3 font-semibold">Total Paid</th>
@@ -371,6 +372,7 @@ export default function OrderListPage() {
                         </Link>
                       </td>
                       <td className="px-4 py-3 text-subtle-text">{formatDate(order.DateSubmitted || order.DateCreated)}</td>
+                      <td className="px-4 py-3">{isGuestOrder(order) ? order.xp.Email : order.FromUser.Email}</td>
                       <td className="px-4 py-3">{getCustomerFirstName(order)}</td>
                       <td className="px-4 py-3">{getCustomerLastName(order)}</td>
                       <td className="px-4 py-3 font-medium">{formatPrice(order.Total)}</td>

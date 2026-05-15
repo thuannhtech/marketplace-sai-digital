@@ -631,7 +631,6 @@ export async function createCustomerAddress(
       },
     } as any);
 
-    // Assign the created address to this user (and optionally mark as default shipping/billing).
     await Addresses.SaveAssignment(buyerId, {
       AddressID: created.ID,
       UserID: customerId,
