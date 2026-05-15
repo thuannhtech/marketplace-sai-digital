@@ -381,6 +381,7 @@ export async function getCustomers(page = 1, pageSize = 20, search?: string, fil
     const options: any = {
       page,
       pageSize,
+      sortBy: ["!DateCreated"],
       filters: validFilters
     };
     
