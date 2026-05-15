@@ -1013,9 +1013,12 @@ export default function ProductPage() {
     if (!quiet) clearMessage();
 
     try {
-      const data = await fetchMarketplaceProducts(client, {
+      const products = await fetchMarketplaceProducts(client, {
         language: language?.trim() || languageFilter,
       });
+
+      const data = products.filter(product => product.status === 'Draft' || product.status === 'Approved');
+
       setRows(data);
       setCurrentPage(1);
       if (!quiet) showMessage(`Loaded ${data.length} products from GraphQL.`);

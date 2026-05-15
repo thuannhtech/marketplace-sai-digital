@@ -235,6 +235,10 @@ function toTimestamp(value?: string): number {
   return Number.isNaN(parsed) ? Number.NEGATIVE_INFINITY : parsed;
 }
 
+function hasNonEmptyStatus(product: ProductRow): boolean {
+  return typeof product.status === "string" && product.status.trim().length > 0;
+}
+
 async function executeAuthoringGraphql(
   client: ClientSDK,
   body: Record<string, unknown>,
@@ -486,7 +490,7 @@ export async function fetchMarketplaceProducts(
       : initialResponse;
     const products = extractProductsFromResponse(response);
     console.info("[product-query] application.graphql parsed products", products.length);
-    return products;
+    return products.filter(hasNonEmptyStatus);
   } catch (error) {
     console.error("[product-query] GraphQL query failed", error);
     throw error;
