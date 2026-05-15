@@ -324,7 +324,7 @@ export default function OrderDetailPage() {
             <InfoRow label="SubTotal" value={formatPrice(order.Subtotal || 0)} />
             <InfoRow label="Discount" value={formatPrice(order.PromotionDiscount || 0)} />
             <InfoRow label="GST" value={formatPercentage(getOrderGst(order))} />
-            <InfoRow label="Tax Cost" value={formatPrice(order.TaxCost || 0)} />
+            <InfoRow label="GST Inclusive" value={formatPrice(order.TaxCost || 0)} />
             <InfoRow label="Total Paid" value={formatPrice(order.Total || 0)} />
           </CollapsibleSection>
 
