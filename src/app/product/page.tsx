@@ -1017,7 +1017,7 @@ export default function ProductPage() {
         language: language?.trim() || languageFilter,
       });
 
-      const data = products.filter(product => product.status === 'Draft' || product.status === 'Approved');
+      const data = products.filter(product => product.status === 'DRAFT' || product.status === 'Approved');
 
       setRows(data);
       setCurrentPage(1);
