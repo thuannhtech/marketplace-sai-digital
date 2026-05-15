@@ -126,6 +126,17 @@ async function getOrderCloudImpersonationToken(buyerId: string, userId: string) 
   }
 }
 
+function normalizeMeAddressUsage(useDefaultBilling?: boolean, useDefaultShipping?: boolean) {
+  const billing = Boolean(useDefaultBilling);
+  const shipping = Boolean(useDefaultShipping);
+
+  if (!billing && !shipping) {
+    return { billing: false, shipping: true };
+  }
+
+  return { billing, shipping };
+}
+
 /** Buyer ID from env — used only to scope incoming orders (`Orders.List` / detail check). */
 function resolveOrderCloudBuyerId(): string {
   const raw = process.env.NEXT_PUBLIC_ORDERCLOUD_BUYER_ID || process.env.ORDERCLOUD_BUYER_ID;
@@ -530,7 +541,7 @@ export async function getCustomerDetail(customerId: string) {
     const auth = await getOrderCloudToken();
     if (!auth.success || !auth.token) throw new Error("Auth failed");
 
-    const { Users, Tokens, Addresses, UserGroups } = await import("ordercloud-javascript-sdk");
+    const { Users, Tokens, Addresses, UserGroups, Me } = await import("ordercloud-javascript-sdk");
     Tokens.SetAccessToken(auth.token);
 
     const buyerId = process.env.NEXT_PUBLIC_ORDERCLOUD_BUYER_ID || process.env.ORDERCLOUD_BUYER_ID;
@@ -538,9 +549,10 @@ export async function getCustomerDetail(customerId: string) {
 
     const customer = await Users.Get(buyerId, customerId);
 
-    const [groupAssignmentsRes, addressAssignmentsRes] = await Promise.all([
+    const [groupAssignmentsRes, addressAssignmentsRes, impersonationAuth] = await Promise.all([
       UserGroups.ListUserAssignments(buyerId, { userID: customerId, pageSize: 100 }).catch(() => ({ Items: [] })),
       Addresses.ListAssignments(buyerId, { userID: customerId, pageSize: 100 }).catch(() => ({ Items: [] })),
+      getOrderCloudImpersonationToken(buyerId, customerId),
     ]);
 
     const groupIds = Array.from(
@@ -561,15 +573,24 @@ export async function getCustomerDetail(customerId: string) {
           }
         }),
       ),
-      Promise.all(
-        addressIds.map(async (addressId) => {
-          try {
-            return await Addresses.Get(buyerId, addressId);
-          } catch {
-            return { ID: addressId };
-          }
-        }),
-      ),
+      impersonationAuth.success && impersonationAuth.token
+        ? Me.ListAddresses(
+            { pageSize: 100 },
+            {
+              accessToken: impersonationAuth.token,
+            } as any,
+          )
+            .then((res) => res.Items || [])
+            .catch(() => [])
+        : Promise.all(
+            addressIds.map(async (addressId) => {
+              try {
+                return await Addresses.Get(buyerId, addressId);
+              } catch {
+                return { ID: addressId };
+              }
+            }),
+          ),
     ]);
 
     return {
@@ -610,33 +631,39 @@ export async function createCustomerAddress(
     const auth = await getOrderCloudToken();
     if (!auth.success || !auth.token) throw new Error("Auth failed");
 
-    const { Addresses, Tokens } = await import("ordercloud-javascript-sdk");
+    const { Me, Tokens } = await import("ordercloud-javascript-sdk");
     Tokens.SetAccessToken(auth.token);
 
     const buyerId = process.env.NEXT_PUBLIC_ORDERCLOUD_BUYER_ID || process.env.ORDERCLOUD_BUYER_ID;
     if (!buyerId) throw new Error("Missing Buyer ID in environment variables");
 
-    const created = await Addresses.Create(buyerId, {
+    const impersonationAuth = await getOrderCloudImpersonationToken(buyerId, customerId);
+    if (!impersonationAuth.success || !impersonationAuth.token) {
+      throw new Error(impersonationAuth.error || "Failed to impersonate customer");
+    }
+    const usage = normalizeMeAddressUsage(payload.useDefaultBilling, payload.useDefaultShipping);
+
+    const created = await Me.CreateAddress({
       AddressName: payload.saveAs || "Home",
       FirstName: payload.firstName,
       LastName: payload.lastName,
       CompanyName: payload.companyName || undefined,
       Street1: payload.street1,
-      City: "N/A",
+      City: payload.suburb || "N/A",
+      State: payload.state || undefined,
+      Zip: payload.postcode || undefined,
       Country: "SC",
       Phone: payload.mobile ? `${payload.mobileAreaCode || ""}${payload.mobile}` : undefined,
+      Billing: usage.billing,
+      Shipping: usage.shipping,
       xp: {
         SaveAddressAs: payload.saveAs || undefined,
         MobileAreaCode: payload.mobileAreaCode || undefined,
+        DPID: payload.dpid || undefined,
       },
+    } as any, {
+      accessToken: impersonationAuth.token,
     } as any);
-
-    await Addresses.SaveAssignment(buyerId, {
-      AddressID: created.ID,
-      UserID: customerId,
-      IsBilling: Boolean(payload.useDefaultBilling),
-      IsShipping: Boolean(payload.useDefaultShipping),
-    });
 
     return { success: true, data: JSON.parse(JSON.stringify(created)) };
   } catch (err: any) {
@@ -655,6 +682,10 @@ export async function updateCustomerAddress(
     mobileAreaCode?: string;
     companyName?: string;
     street1: string;
+    suburb?: string;
+    state?: string;
+    postcode?: string;
+    dpid?: string;
     saveAs?: "Home" | "Business";
     useDefaultBilling?: boolean;
     useDefaultShipping?: boolean;
@@ -664,32 +695,39 @@ export async function updateCustomerAddress(
     const auth = await getOrderCloudToken();
     if (!auth.success || !auth.token) throw new Error("Auth failed");
 
-    const { Addresses, Tokens } = await import("ordercloud-javascript-sdk");
+    const { Me, Tokens } = await import("ordercloud-javascript-sdk");
     Tokens.SetAccessToken(auth.token);
 
     const buyerId = process.env.NEXT_PUBLIC_ORDERCLOUD_BUYER_ID || process.env.ORDERCLOUD_BUYER_ID;
     if (!buyerId) throw new Error("Missing Buyer ID in environment variables");
 
-    const updated = await Addresses.Patch(buyerId, addressId, {
+    const impersonationAuth = await getOrderCloudImpersonationToken(buyerId, customerId);
+    if (!impersonationAuth.success || !impersonationAuth.token) {
+      throw new Error(impersonationAuth.error || "Failed to impersonate customer");
+    }
+    const usage = normalizeMeAddressUsage(payload.useDefaultBilling, payload.useDefaultShipping);
+
+    const updated = await Me.SaveAddress(addressId, {
       AddressName: payload.saveAs || undefined,
       FirstName: payload.firstName,
       LastName: payload.lastName,
       CompanyName: payload.companyName || undefined,
       Street1: payload.street1,
-      City: "N/A",
+      City: payload.suburb || "N/A",
+      State: payload.state || undefined,
+      Zip: payload.postcode || undefined,
       Country: "SC",
       Phone: payload.mobile ? `${payload.mobileAreaCode || ""}${payload.mobile}` : undefined,
+      Billing: usage.billing,
+      Shipping: usage.shipping,
       xp: {
         SaveAddressAs: payload.saveAs || undefined,
+        MobileAreaCode: payload.mobileAreaCode || undefined,
+        DPID: payload.dpid || undefined,
       },
+    } as any, {
+      accessToken: impersonationAuth.token,
     } as any);
-
-    await Addresses.SaveAssignment(buyerId, {
-      AddressID: addressId,
-      UserID: customerId,
-      IsBilling: Boolean(payload.useDefaultBilling),
-      IsShipping: Boolean(payload.useDefaultShipping),
-    });
 
     return { success: true, data: JSON.parse(JSON.stringify(updated)) };
   } catch (err: any) {

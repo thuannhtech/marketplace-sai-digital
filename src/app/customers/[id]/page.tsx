@@ -381,8 +381,8 @@ export default function CustomerDetailPage() {
       companyName: String(addr?.CompanyName || ""),
       street1: String(addr?.Street1 || ""),
       saveAs: (addr?.AddressName === "Business" ? "Business" : "Home") as "Home" | "Business",
-      useDefaultBilling: Boolean(false),
-      useDefaultShipping: Boolean(false),
+      useDefaultBilling: Boolean(addr?.Billing),
+      useDefaultShipping: Boolean(addr?.Shipping),
     });
     setIsAddressDialogOpen(true);
   }
