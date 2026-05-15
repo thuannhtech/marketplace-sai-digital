@@ -19,7 +19,7 @@ export const siteNavigationGroups: SiteNavigationGroup[] = [
     title: "Products",
     items: [
       {
-        title: "Product Listing",
+        title: "Product Management",
         url: "/product",
         icon: mdi.mdiPackageVariantClosed,
       },
@@ -29,7 +29,7 @@ export const siteNavigationGroups: SiteNavigationGroup[] = [
     title: "Orders",
     items: [
       {
-        title: "Order Listing",
+        title: "Order Management",
         url: "/orders",
         icon: mdi.mdiClipboardListOutline,
       },
@@ -39,7 +39,7 @@ export const siteNavigationGroups: SiteNavigationGroup[] = [
     title: "Customers",
     items: [
       {
-        title: "Customer Listing",
+        title: "Customer Management",
         url: "/customers",
         icon: mdi.mdiAccountMultipleOutline,
       },
@@ -49,7 +49,7 @@ export const siteNavigationGroups: SiteNavigationGroup[] = [
     title: "Promotions",
     items: [
       {
-        title: "Promotion Listing",
+        title: "Promotion Management",
         url: "/promotions",
         icon: mdi.mdiTicketPercentOutline,
       },

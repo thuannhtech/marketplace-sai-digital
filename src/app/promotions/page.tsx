@@ -133,6 +133,7 @@ export default function PromotionsPage() {
 
   async function loadPromotionList({
     pageOverride,
+    searchOverride,
     activeOverride,
     withLoading = true,
   }: {
@@ -149,6 +150,7 @@ export default function PromotionsPage() {
       const res = await getPromotions(
         pageOverride ?? page,
         pageSize,
+        (searchOverride ?? searchQuery).trim() || undefined,
         (activeOverride ?? activeFilter) === ACTIVE_ALL ? undefined : (activeOverride ?? activeFilter),
       );
       if (!res.success) {

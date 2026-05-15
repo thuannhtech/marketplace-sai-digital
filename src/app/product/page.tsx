@@ -1104,7 +1104,7 @@ export default function ProductPage() {
         }
         await updateProductStatusInGraph(client, {
           itemId: editingProduct.id,
-          status: "Draft",
+          status: "DRAFT",
           language: createForm.language,
         });
         setEditingProduct((prev) => (prev ? { ...prev, status: STATUS_DRAFT } : prev));
@@ -1712,7 +1712,7 @@ export default function ProductPage() {
 
                         await updateProductStatusInGraph(client, {
                           itemId: pendingLocalPublishProduct.id,
-                          status: "Approved",
+                          status: "APPROVED",
                           language: createForm.language,
                         });
                         const publishResult = await publishProductToEdge(client, {
