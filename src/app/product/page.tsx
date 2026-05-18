@@ -261,9 +261,6 @@ const SelectedMediaLibraryGrid = memo(function SelectedMediaLibraryGrid({
           className="overflow-hidden rounded-2xl border border-sidebar-border bg-white shadow-[0_8px_30px_rgba(15,23,42,0.05)]"
         >
           <div className="relative aspect-[4/3] overflow-hidden bg-muted">
-            <div className="absolute left-1.5 top-1.5 z-10 rounded-md bg-primary px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-white">
-              Linked
-            </div>
             <MediaLibraryPickThumb src={item.previewUrl} label={item.name} />
           </div>
           <div className="flex items-start gap-3 px-4 py-3">
@@ -930,9 +927,6 @@ export default function ProductPage() {
         MEDIA_LIBRARY_EDGE_FOLDER_PATH,
       );
       setMediaLibraryOptions(items);
-      if (!quiet) {
-        showMessage(`Loaded ${items.length} images from media library.`);
-      }
       return items;
     } catch (error) {
       if (!quiet) {
