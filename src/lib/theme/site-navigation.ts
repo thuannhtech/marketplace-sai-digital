@@ -56,6 +56,16 @@ export const siteNavigationGroups: SiteNavigationGroup[] = [
     ],
   },
   {
+    title: "Reports",
+    items: [
+      {
+        title: "OC Fabric Report",
+        url: "/report",
+        icon: mdi.mdiChartBoxOutline,
+      },
+    ],
+  },
+  {
     title: "Configuration",
     items: [
       {

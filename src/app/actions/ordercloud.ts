@@ -30,13 +30,24 @@ const ORDERCLOUD_IMPERSONATION_ROLES = [
   "PromotionAdmin",
 ] as const;
 
+const DEFAULT_ORDERCLOUD_SCOPE = ORDERCLOUD_IMPERSONATION_ROLES.join(" ");
+
+function getOrderCloudEnvValue(...keys: string[]): string {
+  for (const key of keys) {
+    const value = process.env[key]?.trim();
+    if (value) return value;
+  }
+
+  return "";
+}
+
 export async function getOrderCloudToken() {
-  const clientID = process.env.NEXT_PUBLIC_ORDERCLOUD_CLIENT_ID || "";
+  const clientID = getOrderCloudEnvValue("OC_CLIENT_ID", "NEXT_PUBLIC_ORDERCLOUD_CLIENT_ID");
   const username = process.env.ORDERCLOUD_USERNAME || "";
   const password = process.env.ORDERCLOUD_PASSWORD || "";
-  const baseApiUrl = process.env.NEXT_PUBLIC_ORDERCLOUD_BASE_API_URL || "https://sandboxapi.ordercloud.io";
+  const baseApiUrl = getOrderCloudEnvValue("OC_BASE_URL", "NEXT_PUBLIC_ORDERCLOUD_BASE_API_URL") || "https://sandboxapi.ordercloud.io";
 
-  const clientSecret = process.env.ORDERCLOUD_CLIENT_SECRET || "";
+  const clientSecret = getOrderCloudEnvValue("OC_CLIENT_SECRET", "ORDERCLOUD_CLIENT_SECRET");
 
   Configuration.Set({
     baseApiUrl: baseApiUrl,
@@ -45,12 +56,18 @@ export async function getOrderCloudToken() {
 
   try {
     const formData = new URLSearchParams();
-    formData.append("grant_type", "password");
+    const canUsePasswordGrant = Boolean(username && password);
+    formData.append("grant_type", canUsePasswordGrant ? "password" : "client_credentials");
     formData.append("client_id", clientID);
     formData.append("client_secret", clientSecret);
-    formData.append("username", username);
-    formData.append("password", password);
-    formData.append("scope", "FullAccess");
+
+    if (canUsePasswordGrant) {
+      formData.append("username", username);
+      formData.append("password", password);
+      formData.append("scope", "FullAccess");
+    } else {
+      formData.append("scope", process.env.ORDERCLOUD_TOKEN_SCOPE?.trim() || DEFAULT_ORDERCLOUD_SCOPE);
+    }
 
     const response = await fetch(`${baseApiUrl}/oauth/token`, {
       method: "POST",
@@ -81,9 +98,9 @@ export async function getOrderCloudToken() {
 }
 
 async function getOrderCloudImpersonationToken(buyerId: string, userId: string) {
-  const clientID = process.env.NEXT_PUBLIC_ORDERCLOUD_CLIENT_ID || "";
-  const clientSecret = process.env.ORDERCLOUD_CLIENT_SECRET || "";
-  const baseApiUrl = process.env.NEXT_PUBLIC_ORDERCLOUD_BASE_API_URL || "https://sandboxapi.ordercloud.io";
+  const clientID = getOrderCloudEnvValue("OC_CLIENT_ID", "NEXT_PUBLIC_ORDERCLOUD_CLIENT_ID");
+  const clientSecret = getOrderCloudEnvValue("OC_CLIENT_SECRET", "ORDERCLOUD_CLIENT_SECRET");
+  const baseApiUrl = getOrderCloudEnvValue("OC_BASE_URL", "NEXT_PUBLIC_ORDERCLOUD_BASE_API_URL") || "https://sandboxapi.ordercloud.io";
 
   Configuration.Set({
     baseApiUrl,
@@ -139,12 +156,201 @@ function normalizeMeAddressUsage(useDefaultBilling?: boolean, useDefaultShipping
 
 /** Buyer ID from env — used only to scope incoming orders (`Orders.List` / detail check). */
 function resolveOrderCloudBuyerId(): string {
-  const raw = process.env.NEXT_PUBLIC_ORDERCLOUD_BUYER_ID || process.env.ORDERCLOUD_BUYER_ID;
+  const raw = getOrderCloudEnvValue("OC_BUYER_ID", "NEXT_PUBLIC_ORDERCLOUD_BUYER_ID", "ORDERCLOUD_BUYER_ID");
   const buyerId = typeof raw === "string" ? raw.trim() : "";
   if (!buyerId) {
     throw new Error("Missing Buyer ID in environment variables");
   }
   return buyerId;
+}
+
+function getXpValue(source: unknown, paths: string[], fallback = "N/A"): string {
+  const xp = (source as { xp?: Record<string, unknown>; Xp?: Record<string, unknown> } | undefined)?.xp ??
+    (source as { Xp?: Record<string, unknown> } | undefined)?.Xp;
+
+  for (const path of paths) {
+    const value = path.split(".").reduce<unknown>((current, key) => {
+      if (!current || typeof current !== "object") return undefined;
+      return (current as Record<string, unknown>)[key];
+    }, xp);
+
+    if (value !== undefined && value !== null && String(value).trim()) {
+      return String(value);
+    }
+  }
+
+  return fallback;
+}
+
+function toNumber(value: unknown): number {
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue) ? numericValue : 0;
+}
+
+function formatOcDate(value?: string): string {
+  if (!value) return "N/A";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toISOString().slice(0, 10);
+}
+
+function normalizePurchasedBy(value: string): string {
+  return value.trim().toLowerCase() === "buyer anonymous sitecoreai" ? "Anonymous" : value;
+}
+
+export interface Report104InventoryRow {
+  id: string;
+  purchasedBy: string;
+  accountManager: string;
+  market: string;
+  transactionDate: string;
+  transactionReceipt: string;
+  transactionStatus: string;
+  product: string;
+  quantityPurchased: number;
+  unitCost: number;
+  amount: number;
+  inventoryBalanceQuantity: number;
+  convertedEticketsQuantity: number;
+  expiryDate: string;
+  validityStatus: string;
+}
+
+export interface Report104Summary {
+  totalTransactions: number;
+  successfulTransactions: number;
+  failedTransactions: number;
+  totalQuantityPurchased: number;
+  totalAmount: number;
+  availableInventory: number;
+  convertedEtickets: number;
+  expiredItems: number;
+}
+
+export async function getReport104InventoryData() {
+  try {
+    const auth = await getOrderCloudToken();
+    if (!auth.success || !auth.token) {
+      throw new Error(auth.error || "OrderCloud auth failed");
+    }
+
+    const { Buyers, LineItems, Orders, Products, Tokens, Users } = await import("ordercloud-javascript-sdk");
+    Tokens.SetAccessToken(auth.token);
+
+    const buyerId = resolveOrderCloudBuyerId();
+    const [buyer, orderList] = await Promise.all([
+      Buyers.Get(buyerId).catch(() => null),
+      Orders.List("Incoming", {
+        buyerID: buyerId,
+        pageSize: 25,
+        sortBy: ["!DateSubmitted", "!DateCreated"],
+      } as any),
+    ]);
+
+    const productCache = new Map<string, any>();
+    const userCache = new Map<string, any>();
+
+    const rows: Report104InventoryRow[] = [];
+
+    for (const order of orderList.Items ?? []) {
+      const lineItems = await LineItems.List("All", order.ID, { pageSize: 100 } as any).catch(() => ({ Items: [] }));
+      const userId = order.FromUserID || "";
+      let user: any = null;
+
+      if (userId) {
+        if (!userCache.has(userId)) {
+          userCache.set(userId, await Users.Get(buyerId, userId).catch(() => null));
+        }
+        user = userCache.get(userId);
+      }
+
+      for (const lineItem of lineItems.Items ?? []) {
+        const lineItemPayload = lineItem as any;
+        const productId = lineItemPayload.ProductID || lineItemPayload.Product?.ID || "";
+        let product: any = lineItemPayload.Product || null;
+
+        if (productId) {
+          if (!productCache.has(productId)) {
+            productCache.set(productId, await Products.Get(productId).catch(() => product));
+          }
+          product = productCache.get(productId) || product;
+        }
+
+        const quantity = toNumber(lineItemPayload.Quantity);
+        const unitCost = toNumber(lineItemPayload.UnitPrice ?? product?.PriceSchedule?.PriceBreaks?.[0]?.Price);
+        const amount = toNumber(lineItemPayload.LineTotal ?? lineItemPayload.Subtotal) || quantity * unitCost;
+        const transactionStatus = String(order.Status || getXpValue(order, ["SubStatus", "PaymentStatus"], "N/A"));
+        const expiryDate = getXpValue(lineItem, ["ExpiryDate", "ExpirationDate"], getXpValue(product, ["ExpiryDate", "ExpirationDate"]));
+        const validityStatusFromXp = getXpValue(lineItem, ["ValidityStatus"], getXpValue(product, ["ValidityStatus"], ""));
+        const validityStatus =
+          validityStatusFromXp ||
+          (expiryDate !== "N/A" && new Date(expiryDate).getTime() < Date.now() ? "expired" : "available");
+
+        rows.push({
+          id: `${order.ID}-${lineItemPayload.ID || productId}`,
+          purchasedBy: normalizePurchasedBy(
+            [user?.FirstName, user?.LastName].filter(Boolean).join(" ").trim() ||
+              [order.FromUser?.FirstName, order.FromUser?.LastName].filter(Boolean).join(" ").trim() ||
+              user?.Username ||
+              order.FromUser?.Username ||
+              buyer?.Name ||
+              order.FromCompanyID ||
+              buyerId,
+          ),
+          accountManager: getXpValue(user, ["AccountManager", "PersonalInformation.AccountManager"], getXpValue(order, ["AccountManager"])),
+          market: getXpValue(order, ["Market", "Markets"], getXpValue(product, ["Market", "Markets"])),
+          transactionDate: formatOcDate(order.DateSubmitted || order.DateCreated),
+          transactionReceipt: getXpValue(order, ["TransactionReceipt", "ReceiptNo", "ReceiptNumber"], order.ID || "N/A"),
+          transactionStatus,
+          product: product?.Name || lineItemPayload.Product?.Name || productId || "N/A",
+          quantityPurchased: quantity,
+          unitCost,
+          amount,
+          inventoryBalanceQuantity: toNumber(getXpValue(product, ["InventoryBalanceQuantity", "Inventory.BalanceQuantity", "QuantityAvailable"], product?.Inventory?.QuantityAvailable ?? product?.QuantityAvailable ?? 0)),
+          convertedEticketsQuantity: toNumber(getXpValue(lineItem, ["ConvertedEticketsQuantity", "ConvertToEticketsQuantity"], getXpValue(product, ["ConvertedEticketsQuantity", "ConvertToEticketsQuantity"], 0 as any))),
+          expiryDate,
+          validityStatus,
+        });
+      }
+    }
+
+    const summary: Report104Summary = rows.reduce(
+      (acc, row) => {
+        const isFailed = /fail|cancel|declin|problem/i.test(row.transactionStatus);
+        acc.totalTransactions += 1;
+        acc.successfulTransactions += isFailed ? 0 : 1;
+        acc.failedTransactions += isFailed ? 1 : 0;
+        acc.totalQuantityPurchased += row.quantityPurchased;
+        acc.totalAmount += row.amount;
+        acc.availableInventory += row.inventoryBalanceQuantity;
+        acc.convertedEtickets += row.convertedEticketsQuantity;
+        acc.expiredItems += row.validityStatus.toLowerCase() === "expired" ? 1 : 0;
+        return acc;
+      },
+      {
+        totalTransactions: 0,
+        successfulTransactions: 0,
+        failedTransactions: 0,
+        totalQuantityPurchased: 0,
+        totalAmount: 0,
+        availableInventory: 0,
+        convertedEtickets: 0,
+        expiredItems: 0,
+      },
+    );
+
+    return {
+      success: true,
+      data: {
+        rows: JSON.parse(JSON.stringify(rows)),
+        summary,
+        lastSyncUtc: new Date().toISOString(),
+      },
+    };
+  } catch (err: any) {
+    console.error("Get Report 104 Inventory Error:", err);
+    return { success: false, error: err.message || "Failed to load Report 104 inventory data" };
+  }
 }
 
 export async function getIncomingOrders() {
