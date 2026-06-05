@@ -59,7 +59,7 @@ export const siteNavigationGroups: SiteNavigationGroup[] = [
     title: "Reports",
     items: [
       {
-        title: "OC Fabric Report",
+        title: "Product & Inventory Analytics",
         url: "/report",
         icon: mdi.mdiChartBoxOutline,
       },

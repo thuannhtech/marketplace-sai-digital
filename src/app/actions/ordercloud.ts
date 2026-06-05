@@ -206,6 +206,7 @@ export interface Report104InventoryRow {
   transactionDate: string;
   transactionReceipt: string;
   transactionStatus: string;
+  productId: string;
   product: string;
   quantityPurchased: number;
   unitCost: number;
@@ -302,6 +303,7 @@ export async function getReport104InventoryData() {
           transactionDate: formatOcDate(order.DateSubmitted || order.DateCreated),
           transactionReceipt: getXpValue(order, ["TransactionReceipt", "ReceiptNo", "ReceiptNumber"], order.ID || "N/A"),
           transactionStatus,
+          productId: productId || "N/A",
           product: product?.Name || lineItemPayload.Product?.Name || productId || "N/A",
           quantityPurchased: quantity,
           unitCost,
