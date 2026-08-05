@@ -3,13 +3,21 @@ import { NextResponse } from "next/server";
 const DEFAULT_ORDERCLOUD_SCOPE =
   "BuyerAdmin BuyerReader BuyerUserAdmin BuyerUserReader BuyerImpersonation Shopper AddressAdmin MeAddressAdmin MeAdmin MeCreditCardAdmin MeXpAdmin PasswordReset ShipmentAdmin ShipmentReader OrderAdmin OrderReader UnsubmittedOrderReader OverrideUnitPrice OverrideShipping CreditCardAdmin CreditCardReader ProductAdmin ProductReader PromotionReader PromotionAdmin";
 
+function getEnvValue(...keys: string[]): string {
+  for (const key of keys) {
+    const value = process.env[key]?.trim();
+    if (value) return value;
+  }
+
+  return "";
+}
+
 export async function POST() {
-  const clientId = process.env.NEXT_PUBLIC_ORDERCLOUD_CLIENT_ID?.trim() || "";
-  const clientSecret = process.env.ORDERCLOUD_CLIENT_SECRET?.trim() || "";
+  const clientId = getEnvValue("OC_CLIENT_ID", "NEXT_PUBLIC_ORDERCLOUD_CLIENT_ID");
+  const clientSecret = getEnvValue("OC_CLIENT_SECRET", "ORDERCLOUD_CLIENT_SECRET");
   const username = process.env.ORDERCLOUD_USERNAME?.trim() || "";
   const password = process.env.ORDERCLOUD_PASSWORD?.trim() || "";
-  const baseApiUrl =
-    process.env.NEXT_PUBLIC_ORDERCLOUD_BASE_API_URL?.trim() || "https://sandboxapi.ordercloud.io";
+  const baseApiUrl = getEnvValue("OC_BASE_URL", "NEXT_PUBLIC_ORDERCLOUD_BASE_API_URL") || "https://sandboxapi.ordercloud.io";
   const scope = process.env.ORDERCLOUD_TOKEN_SCOPE?.trim() || DEFAULT_ORDERCLOUD_SCOPE;
 
   if (!clientId || !clientSecret || !username || !password) {

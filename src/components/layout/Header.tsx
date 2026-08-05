@@ -9,6 +9,7 @@ const routeMap: Record<string, string> = {
   "/product": "Product Listing",
   "/orders": "Order Listing",
   "/customers": "Customer Listing",
+  "/report": "Product & Inventory Analytics",
 };
 
 export function Header() {
