@@ -1,104 +1,11 @@
 "use client";
 
 import * as mdi from "@mdi/js";
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Icon } from "@/lib/icon";
-
-const reportFields = [
-  "Purchased by (Company name)",
-  "Transaction date",
-  "Transaction receipt",
-  "Transaction status (successful/failed)",
-  "Products",
-  "Quantity purchase",
-  "Unit cost",
-  "Amount",
-  "Inventory Balance quantity",
-  "Validity status (available/expired)",
-];
-
-const fabricTables = [
-  {
-    name: "dim_company",
-    source: "OrderCloud Buyers / Users",
-    fields: "Company name, buyer segment",
-  },
-  {
-    name: "dim_product",
-    source: "OrderCloud Products",
-    fields: "Product ID, product name, catalog, category, unit cost",
-  },
-  {
-    name: "fact_inventory_transaction",
-    source: "Orders + Line Items + xp",
-    fields: "Transaction date, receipt, status, quantity, amount",
-  },
-  {
-    name: "fact_inventory_balance",
-    source: "Products + Inventory xp",
-    fields: "Balance quantity, validity status",
-  },
-];
-
-const connectSteps = [
-  "OrderCloud: create an API Client with read scopes for Buyers, Users, Orders, LineItems, Products, Catalogs, and Inventory-related xp fields.",
-  "Environment: store OC_CLIENT_ID, OC_CLIENT_SECRET, OC_BUYER_ID, OC_BASE_URL, FABRIC_TENANT_ID, FABRIC_CLIENT_ID, FABRIC_CLIENT_SECRET, FABRIC_WORKSPACE_ID, and FABRIC_LAKEHOUSE_ID.",
-  "Fabric: create Workspace, Lakehouse, and four bronze tables for raw buyers, products, orders, and line items.",
-  "Sitecore Connect: create a scheduled recipe that authenticates to OC, pulls changed records by LastModifiedDate, and writes JSON payloads to OneLake.",
-  "Fabric Dataflow Gen2 or Notebook: flatten bronze JSON into silver tables, then calculate Report 104 gold tables.",
-  "Power BI: connect to the Fabric semantic model and build Inventory Status Reporting visuals by market, company, product, validity status, and transaction status.",
-  "Monitoring: log recipe run ID, source count, landed count, rejected rows, retry count, and last successful sync time.",
-];
-
-const architectureNodes = [
-  {
-    title: "B2B Storefront",
-    subtitle: "Commerce user buys products and eTickets",
-    icon: mdi.mdiStorefrontOutline,
-    className: "lg:col-start-1 lg:row-start-1",
-  },
-  {
-    title: "Sitecore AI CMS",
-    subtitle: "Content, product pages, Experience Edge",
-    icon: mdi.mdiSitemapOutline,
-    className: "lg:col-start-2 lg:row-start-1",
-  },
-  {
-    title: "Microsoft Fabric",
-    subtitle: "Report 104 lakehouse and semantic model",
-    icon: mdi.mdiDatabaseCogOutline,
-    className: "lg:col-start-2 lg:row-start-2",
-    highlight: true,
-  },
-  {
-    title: "Sitecore Connect",
-    subtitle: "Integration middleware, API orchestration",
-    icon: mdi.mdiTransitConnectionVariant,
-    className: "lg:col-start-3 lg:row-start-2",
-    highlight: true,
-  },
-  {
-    title: "OrderCloud",
-    subtitle: "B2B marketplace, orders, products, inventory xp",
-    icon: mdi.mdiCloudOutline,
-    className: "lg:col-start-3 lg:row-start-3",
-  },
-  {
-    title: "Admin Portal",
-    subtitle: "User, catalog, order, promotion, report management",
-    icon: mdi.mdiMonitorDashboard,
-    className: "lg:col-start-2 lg:row-start-3",
-  },
-  {
-    title: "External Systems",
-    subtitle: "Salesforce, SIAH, SDC, OSP, payment, finance",
-    icon: mdi.mdiHubspot,
-    className: "lg:col-start-4 lg:row-start-1 lg:row-span-3",
-  },
-];
 
 interface Report104InventoryRow {
   id: string;
@@ -144,6 +51,21 @@ interface FabricSyncResponse {
   error?: string;
 }
 
+interface ReportCachePayload extends Report104Response {
+  cachedAtUtc: string;
+}
+
+type TableColumnKey =
+  | "purchasedBy"
+  | "transactionDate"
+  | "transactionReceipt"
+  | "transactionStatus"
+  | "product"
+  | "quantityPurchased"
+  | "unitCost"
+  | "amount"
+  | "inventoryBalanceQuantity";
+
 const emptySummary: Report104Summary = {
   totalTransactions: 0,
   successfulTransactions: 0,
@@ -154,6 +76,8 @@ const emptySummary: Report104Summary = {
   convertedEtickets: 0,
   expiredItems: 0,
 };
+
+const reportCacheKey = "Transactions";
 
 function formatCurrency(value: number): string {
   return new Intl.NumberFormat("en-US", {
@@ -175,6 +99,70 @@ const csvColumns: { header: string; value: (row: Report104InventoryRow) => unkno
   { header: "inventory_balance", value: (row) => row.inventoryBalanceQuantity },
   { header: "validity", value: (row) => row.validityStatus },
 ];
+
+const tableColumns: {
+  key: TableColumnKey;
+  label: string;
+  render: (row: Report104InventoryRow) => ReactNode;
+}[] = [
+  {
+    key: "purchasedBy",
+    label: "Purchased By",
+    render: (row) => <span className="font-medium text-body-text">{row.purchasedBy}</span>,
+  },
+  {
+    key: "transactionDate",
+    label: "Transaction Date",
+    render: (row) => row.transactionDate,
+  },
+  {
+    key: "transactionReceipt",
+    label: "Receipt",
+    render: (row) => row.transactionReceipt,
+  },
+  {
+    key: "transactionStatus",
+    label: "Status",
+    render: (row) => (
+      <Badge colorScheme={/fail|cancel|declin|problem/i.test(row.transactionStatus) ? "danger" : "success"}>
+        {row.transactionStatus}
+      </Badge>
+    ),
+  },
+  {
+    key: "product",
+    label: "Products",
+    render: (row) => row.product,
+  },
+  {
+    key: "quantityPurchased",
+    label: "Qty",
+    render: (row) => row.quantityPurchased,
+  },
+  {
+    key: "unitCost",
+    label: "Unit Cost",
+    render: (row) => formatCurrency(row.unitCost),
+  },
+  {
+    key: "amount",
+    label: "Amount",
+    render: (row) => <span className="font-medium text-body-text">{formatCurrency(row.amount)}</span>,
+  },
+  {
+    key: "inventoryBalanceQuantity",
+    label: "Inventory Balance",
+    render: (row) => row.inventoryBalanceQuantity,
+  },
+];
+
+const defaultVisibleColumns = tableColumns.reduce(
+  (visibleColumns, column) => ({
+    ...visibleColumns,
+    [column.key]: true,
+  }),
+  {} as Record<TableColumnKey, boolean>,
+);
 
 function formatTimestampForFileName(date: Date): string {
   const yyyy = String(date.getFullYear());
@@ -203,6 +191,44 @@ function toReport104Csv(rows: Report104InventoryRow[]) {
   const body = rows.map((row) => csvColumns.map((column) => escapeCsvCell(column.value(row))).join(","));
 
   return [header, ...body].join("\r\n");
+}
+
+function readReportCache(): ReportCachePayload | null {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const cachedValue = window.localStorage.getItem(reportCacheKey);
+    if (!cachedValue) return null;
+
+    const cachedReport = JSON.parse(cachedValue) as Partial<ReportCachePayload>;
+    if (!Array.isArray(cachedReport.rows) || !cachedReport.summary) return null;
+
+    return {
+      rows: cachedReport.rows,
+      summary: { ...emptySummary, ...cachedReport.summary },
+      lastSyncUtc: cachedReport.lastSyncUtc || "",
+      cachedAtUtc: cachedReport.cachedAtUtc || "",
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeReportCache(data: Report104Response) {
+  if (typeof window === "undefined") return;
+
+  try {
+    const cachePayload: ReportCachePayload = {
+      rows: data.rows || [],
+      summary: data.summary || emptySummary,
+      lastSyncUtc: data.lastSyncUtc || "",
+      cachedAtUtc: new Date().toISOString(),
+    };
+
+    window.localStorage.setItem(reportCacheKey, JSON.stringify(cachePayload));
+  } catch {
+    // Cache is a performance optimization; the report should keep working if storage is unavailable.
+  }
 }
 
 interface ChartDatum {
@@ -239,6 +265,16 @@ function groupRows(rows: Report104InventoryRow[], getLabel: (row: Report104Inven
 function HorizontalBarChart({ title, axisLabel, data, color = "blue" }: ChartDefinition) {
   const maxValue = Math.max(...data.map((item) => item.value), 1);
   const barColor = color === "orange" ? "bg-[#e66a3a]" : "bg-[#2d8df0]";
+  const [barsReady, setBarsReady] = useState(false);
+
+  useEffect(() => {
+    setBarsReady(false);
+    const animationFrame = window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => setBarsReady(true));
+    });
+
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, [data, title]);
 
   return (
     <div className="rounded-md border border-sidebar-border bg-white p-4 shadow-sm">
@@ -252,17 +288,21 @@ function HorizontalBarChart({ title, axisLabel, data, color = "blue" }: ChartDef
 
       <div className="mt-4 space-y-3">
         {data.length > 0 ? (
-          data.map((item) => (
+          data.map((item, index) => (
             <div key={item.label} className="grid grid-cols-[88px_1fr_24px] items-center gap-2 text-xs">
               <span className="truncate text-right text-subtle-text" title={item.label}>
                 {truncateLabel(item.label)}
               </span>
-              <div className="h-7 border-l border-dotted border-blackAlpha-300 bg-muted/40">
+              <div className="h-7 overflow-hidden border-l border-dotted border-blackAlpha-300 bg-muted/40">
                 <div
-                  className={`flex h-7 items-center justify-end px-2 text-[11px] font-semibold text-white ${barColor}`}
-                  style={{ width: `${Math.max((item.value / maxValue) * 100, 10)}%` }}
+                  className={`report-chart-bar relative flex h-7 items-center justify-end overflow-hidden px-2 text-[11px] font-semibold text-white shadow-sm transition-[width] duration-1000 ease-out ${barColor}`}
+                  style={{
+                    width: barsReady ? `${Math.max((item.value / maxValue) * 100, 10)}%` : "0%",
+                    animationDelay: `${index * 140}ms`,
+                    transitionDelay: `${index * 140}ms`,
+                  }}
                 >
-                  {item.value}
+                  <span className="relative z-10">{item.value}</span>
                 </div>
               </div>
               <span className="text-subtle-text">{item.value}</span>
@@ -276,47 +316,6 @@ function HorizontalBarChart({ title, axisLabel, data, color = "blue" }: ChartDef
   );
 }
 
-function ArchitectureNode({
-  title,
-  subtitle,
-  icon,
-  className,
-  highlight,
-}: {
-  title: string;
-  subtitle: string;
-  icon: string;
-  className: string;
-  highlight?: boolean;
-}) {
-  return (
-    <div
-      className={`rounded-lg border-2 border-dashed p-4 ${
-        highlight ? "border-primary bg-primary-bg/45" : "border-blackAlpha-300 bg-white"
-      } ${className}`}
-    >
-      <div className="flex items-start gap-3">
-        <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-md ${highlight ? "bg-primary text-white" : "bg-muted text-body-text"}`}>
-          <Icon path={icon} className="h-5 w-5" />
-        </div>
-        <div className="min-w-0">
-          <h3 className="text-sm font-bold text-body-text">{title}</h3>
-          <p className="mt-1 text-xs leading-5 text-subtle-text">{subtitle}</p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ConnectorLabel({ children, className }: { children: React.ReactNode; className: string }) {
-  return (
-    <div className={`hidden text-center text-[11px] font-semibold uppercase text-subtle-text lg:block ${className}`}>
-      <div className="mx-auto h-px w-full border-t border-dashed border-blackAlpha-400" />
-      <span className="mt-1 inline-block">{children}</span>
-    </div>
-  );
-}
-
 export default function ReportPage() {
   const [rows, setRows] = useState<Report104InventoryRow[]>([]);
   const [summary, setSummary] = useState<Report104Summary>(emptySummary);
@@ -326,9 +325,20 @@ export default function ReportPage() {
   const [error, setError] = useState("");
   const [fabricMessage, setFabricMessage] = useState("");
   const [fabricError, setFabricError] = useState("");
+  const [visibleColumns, setVisibleColumns] = useState<Record<TableColumnKey, boolean>>(defaultVisibleColumns);
 
-  async function loadReportData() {
-    setIsLoading(true);
+  async function loadReportData(options: { preferCache?: boolean; background?: boolean } = {}) {
+    const cachedReport = options.preferCache ? readReportCache() : null;
+
+    if (cachedReport) {
+      setRows(cachedReport.rows);
+      setSummary(cachedReport.summary);
+      setLastSyncUtc(cachedReport.lastSyncUtc);
+      setIsLoading(false);
+    } else if (!options.background) {
+      setIsLoading(true);
+    }
+
     setError("");
 
     try {
@@ -338,17 +348,31 @@ export default function ReportPage() {
       });
       const data = (await response.json().catch(() => ({}))) as Partial<Report104Response> & { error?: string };
       if (!response.ok) {
-        throw new Error(data.error || `Report 104 API failed with status ${response.status}.`);
+        throw new Error(data.error || `Product and inventory analytics API failed with status ${response.status}.`);
       }
       
-      setRows(data.rows || []);
-      setSummary(data.summary || emptySummary);     
-      setLastSyncUtc(data.lastSyncUtc || "");
+      const reportData: Report104Response = {
+        rows: data.rows || [],
+        summary: data.summary || emptySummary,
+        lastSyncUtc: data.lastSyncUtc || "",
+      };
+      const hasTransactionChange =
+        !cachedReport || cachedReport.summary.totalTransactions !== reportData.summary.totalTransactions;
+
+      writeReportCache(reportData);
+
+      if (hasTransactionChange || !options.background) {
+        setRows(reportData.rows);
+        setSummary(reportData.summary);
+        setLastSyncUtc(reportData.lastSyncUtc);
+      }
     } catch (loadError) {
-      setRows([]);
-      setSummary(emptySummary);
-      setLastSyncUtc("");
-      setError(loadError instanceof Error ? loadError.message : "Unable to load Report 104 data from OrderCloud.");
+      if (!cachedReport) {
+        setRows([]);
+        setSummary(emptySummary);
+        setLastSyncUtc("");
+      }
+      setError(loadError instanceof Error ? loadError.message : "Unable to load product and inventory analytics data from OrderCloud.");
     }
 
     setIsLoading(false);
@@ -374,7 +398,7 @@ export default function ReportPage() {
         `Uploaded ${data.rowCount ?? 0} rows as ${data.fileName || data.filePath || "CSV file"} to Sitecore Connect${data.uploadedAtUtc ? ` at ${new Date(data.uploadedAtUtc).toLocaleString()}` : ""}`,
       );
     } catch (syncError) {
-      setFabricError(syncError instanceof Error ? syncError.message : "Failed to upload Report 104 CSV to Sitecore Connect.");
+      setFabricError(syncError instanceof Error ? syncError.message : "Failed to upload product and inventory analytics CSV to Sitecore Connect.");
     }
 
     setIsSyncingFabric(false);
@@ -393,8 +417,15 @@ export default function ReportPage() {
     URL.revokeObjectURL(url);
   }
 
+  function toggleColumn(columnKey: TableColumnKey) {
+    setVisibleColumns((currentColumns) => ({
+      ...currentColumns,
+      [columnKey]: !currentColumns[columnKey],
+    }));
+  }
+
   useEffect(() => {
-    void loadReportData();
+    void loadReportData({ preferCache: true, background: true });
   }, []);
 
   const metricCards = useMemo(
@@ -405,7 +436,6 @@ export default function ReportPage() {
       { label: "Purchased Qty", value: summary.totalQuantityPurchased.toLocaleString(), scheme: "cyan" as const },
       { label: "Amount", value: formatCurrency(summary.totalAmount), scheme: "warning" as const },
       { label: "Inventory Balance", value: summary.availableInventory.toLocaleString(), scheme: "neutral" as const },
-      { label: "Expired", value: summary.expiredItems.toLocaleString(), scheme: "danger" as const },
     ],
     [summary],
   );
@@ -438,7 +468,7 @@ export default function ReportPage() {
         data: groupRows(rows, (row) => row.unitCost, 6),
       },
       {
-        title: "Count of gold_report104 by receipt",
+        title: "Count of product inventory analytics by receipt",
         axisLabel: "receipt",
         data: groupRows(rows, (row) => row.transactionReceipt, 7),
         color: "orange",
@@ -447,22 +477,29 @@ export default function ReportPage() {
     [rows],
   );
 
+  const visibleTableColumns = useMemo(
+    () => tableColumns.filter((column) => visibleColumns[column.key]),
+    [visibleColumns],
+  );
+
+  const tableColumnCount = Math.max(visibleTableColumns.length, 1);
+
   return (
     <div className="space-y-6">
       <section className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div className="max-w-4xl">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge colorScheme="primary">Report 104</Badge>
-            <Badge colorScheme="cyan">Product & Inventory Analytics</Badge>
+            <Badge colorScheme="primary">Report Product & Inventory Analytics Demo</Badge>
             <Badge colorScheme="success">OrderCloud to Microsoft Fabric</Badge>
           </div>
           <h1 className="mt-3 text-2xl font-bold tracking-tight text-body-text">
-            Inventory Status Reporting
+            Report Product & Inventory Analytics Demo
           </h1>
           <p className="mt-2 text-sm leading-6 text-subtle-text">
-            Trang này mô phỏng report 104 trong requirement: inventory tracking, conversion metrics,
-            transaction status, quantity balance, eTicket conversion, expiry, and validity status.
-            Data source chính là OrderCloud, được đẩy qua Sitecore Connect vào Microsoft Fabric để làm semantic model/report.
+            This dashboard demonstrates product and inventory analytics across transaction status,
+            purchased quantity, inventory balance, eTicket conversion, expiry, and validity status.
+            OrderCloud is the primary data source, with data synchronized through Sitecore Connect
+            into Microsoft Fabric for analytics and reporting.
           </p>
         </div>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:min-w-[460px]">
@@ -560,7 +597,7 @@ export default function ReportPage() {
             <div className="flex flex-col gap-3 border-b border-sidebar-border pb-3 lg:flex-row lg:items-end lg:justify-between">
               <div>
                 <p className="text-xl font-medium text-body-text">Quick summary</p>
-                <p className="text-sm text-subtle-text">gold_report104</p>
+                <p className="text-sm text-subtle-text">product_inventory_analytics</p>
               </div>
               <div className="flex flex-wrap gap-6 text-sm text-body-text">
                 <div className="flex items-center gap-3">
@@ -574,7 +611,7 @@ export default function ReportPage() {
                   <span className="h-8 w-1 bg-[#e66a3a]" />
                   <span>
                     <strong>{rows.length.toLocaleString()}</strong>
-                    <span className="ml-2 text-subtle-text">Count of gold_report104</span>
+                    <span className="ml-2 text-subtle-text">Count of product inventory analytics</span>
                   </span>
                 </div>
               </div>
@@ -590,130 +627,31 @@ export default function ReportPage() {
       </Card>
 
       <Card className="border-sidebar-border" padding="md">
-        <CardContent className="space-y-5">
+        <CardContent>
           <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
             <div>
-              <h2 className="text-lg font-semibold text-body-text">Architecture giống mẫu</h2>
-              <p className="text-sm text-subtle-text">
-                OC nằm trong marketplace, Sitecore Connect làm integration middleware, Microsoft Fabric giữ reporting database.
-              </p>
+              <h2 className="text-lg font-semibold text-body-text">Microsoft Fabric Report</h2>
+              <p className="text-sm text-subtle-text">Embedded Product & Inventory Analytics report from Microsoft Fabric.</p>
             </div>
-            <Badge colorScheme="warning">API / SFTP / OneLake</Badge>
+            <Badge colorScheme="cyan">Fabric</Badge>
           </div>
 
-          <div className="relative grid grid-cols-1 gap-4 lg:grid-cols-4 lg:grid-rows-3">
-            {architectureNodes.map((node) => (
-              <ArchitectureNode key={node.title} {...node} />
-            ))}
-
-            <ConnectorLabel className="lg:col-start-1 lg:row-start-1 lg:translate-x-[82%] lg:translate-y-[72px]">
-              Data publishing
-            </ConnectorLabel>
-            <ConnectorLabel className="lg:col-start-2 lg:row-start-2 lg:translate-x-[82%] lg:translate-y-[72px]">
-              Fabric API
-            </ConnectorLabel>
-            <ConnectorLabel className="lg:col-start-3 lg:row-start-2 lg:translate-y-[150px]">
-              OC API
-            </ConnectorLabel>
+          <div className="mt-4 overflow-hidden rounded-md border border-sidebar-border bg-white">
+            <iframe
+              title="Demo"
+              src="https://app.fabric.microsoft.com/reportEmbed?reportId=054078ac-cb9d-450e-a02c-213245b097f4&autoAuth=true&ctid=0a9f795b-a1ab-4108-b2ca-d4fc6425bc1c"
+              className="h-[541px] w-full"
+              allowFullScreen
+            />
           </div>
         </CardContent>
       </Card>
-
-      <section className="grid grid-cols-1 gap-6 xl:grid-cols-[0.8fr_1.2fr]">
-        <Card className="border-sidebar-border" padding="md">
-          <CardContent>
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h2 className="text-lg font-semibold text-body-text">Report 104 Required Fields</h2>
-                <p className="mt-1 text-sm text-subtle-text">Minimum fields from Product & Inventory Analytics.</p>
-              </div>
-              <Badge colorScheme="primary">Inventory</Badge>
-            </div>
-            <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-1">
-              {reportFields.map((field) => (
-                <div key={field} className="flex items-center gap-2 rounded-md border border-sidebar-border bg-white px-3 py-2 text-sm">
-                  <Icon path={mdi.mdiCheckCircleOutline} className="h-4 w-4 shrink-0 text-success" />
-                  <span className="text-body-text">{field}</span>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-sidebar-border" padding="md">
-          <CardContent>
-            <h2 className="text-lg font-semibold text-body-text">Fabric Data Model</h2>
-            <p className="mt-1 text-sm text-subtle-text">
-              Bronze giữ raw JSON từ OC. Silver flatten dữ liệu. Gold phục vụ report 104.
-            </p>
-            <div className="mt-4 overflow-hidden rounded-md border border-sidebar-border">
-              <table className="w-full min-w-[760px] text-left text-sm">
-                <thead className="bg-muted">
-                  <tr className="border-b border-sidebar-border">
-                    <th className="px-4 py-3 font-semibold">Fabric Table</th>
-                    <th className="px-4 py-3 font-semibold">OC Source</th>
-                    <th className="px-4 py-3 font-semibold">Report Fields</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {fabricTables.map((table) => (
-                    <tr key={table.name} className="border-b border-sidebar-border/70 last:border-b-0">
-                      <td className="px-4 py-3 font-medium text-body-text">{table.name}</td>
-                      <td className="px-4 py-3 text-body-text">{table.source}</td>
-                      <td className="px-4 py-3 leading-6 text-subtle-text">{table.fields}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
-      </section>
-
-      <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_0.75fr]">
-        <Card className="border-sidebar-border" padding="md">
-          <CardContent>
-            <h2 className="text-lg font-semibold text-body-text">Step-by-step Connect OC với Microsoft Fabric</h2>
-            <div className="mt-4 space-y-3">
-              {connectSteps.map((step, index) => (
-                <div key={step} className="flex gap-3 rounded-md border border-sidebar-border bg-white p-3">
-                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-semibold text-white">
-                    {index + 1}
-                  </div>
-                  <p className="text-sm leading-6 text-body-text">{step}</p>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-sidebar-border" padding="md">
-          <CardContent className="space-y-4">
-            <h2 className="text-lg font-semibold text-body-text">API Contract gợi ý</h2>
-            <div className="rounded-md bg-gray-900 p-4 font-mono text-xs leading-6 text-gray-100">
-              <p>GET /orders?dateUpdated=&#123;lastSyncUtc&#125;</p>
-              <p>GET /orders/&#123;id&#125;/lineitems</p>
-              <p>GET /products?dateUpdated=&#123;lastSyncUtc&#125;</p>
-              <p>GET /buyers?dateUpdated=&#123;lastSyncUtc&#125;</p>
-              <p>POST /fabric/onelake/report-104/bronze/&#123;entity&#125;</p>
-            </div>
-            <div className="rounded-md border border-warning-bg-active bg-warning-bg px-4 py-3">
-              <p className="text-sm font-semibold text-warning-fg">Implementation note</p>
-              <p className="mt-1 text-sm leading-6 text-body-text">
-                Report 104 cần inventory fields như balance, converted eTickets, expiry, validity.
-                Nếu các field này chưa có trong standard OC schema, nên lưu trong Product xp hoặc LineItem xp
-                rồi flatten sang Fabric.
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-      </section>
 
       <Card className="border-sidebar-border" padding="md">
         <CardContent>
           <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
             <div>
-              <h2 className="text-lg font-semibold text-body-text">Report 104 Inventory Rows</h2>
+              <h2 className="text-lg font-semibold text-body-text">Product & Inventory Analytics Rows</h2>
               <p className="text-sm text-subtle-text">
                 These rows are the same shape that should be landed into Fabric gold table for the report.
               </p>
@@ -723,60 +661,75 @@ export default function ReportPage() {
             </Badge>
           </div>
 
+          <div className="mt-4 rounded-md border border-sidebar-border bg-white px-4 py-3">
+            <p className="text-sm font-semibold text-body-text">Columns</p>
+            <div className="mt-3 flex flex-wrap gap-3">
+              {tableColumns.map((column) => (
+                <label
+                  key={column.key}
+                  className="inline-flex h-9 items-center gap-2 rounded-md border border-sidebar-border bg-background px-3 text-sm text-body-text"
+                >
+                  <input
+                    type="checkbox"
+                    checked={visibleColumns[column.key]}
+                    onChange={() => toggleColumn(column.key)}
+                    className="h-4 w-4 accent-primary"
+                  />
+                  <span>{column.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
           <div className="mt-4 overflow-hidden rounded-md border border-sidebar-border">
             <div className="w-full overflow-x-auto">
-              <table className="w-full min-w-[1500px] text-left text-sm">
+              <table
+                className="w-full text-left text-sm"
+                style={{ minWidth: `${Math.max(visibleTableColumns.length * 150, 560)}px` }}
+              >
                 <thead className="bg-muted">
                   <tr className="border-b border-sidebar-border">
-                    <th className="px-4 py-3 font-semibold">Purchased By</th>
-                    <th className="px-4 py-3 font-semibold">Transaction Date</th>
-                    <th className="px-4 py-3 font-semibold">Receipt</th>
-                    <th className="px-4 py-3 font-semibold">Status</th>
-                    <th className="px-4 py-3 font-semibold">Products</th>
-                    <th className="px-4 py-3 font-semibold">Qty</th>
-                    <th className="px-4 py-3 font-semibold">Unit Cost</th>
-                    <th className="px-4 py-3 font-semibold">Amount</th>
-                    <th className="px-4 py-3 font-semibold">Inventory Balance</th>
-                    <th className="px-4 py-3 font-semibold">Validity</th>
+                    {visibleTableColumns.length > 0 ? (
+                      visibleTableColumns.map((column) => (
+                        <th key={column.key} className="px-4 py-3 font-semibold">
+                          {column.label}
+                        </th>
+                      ))
+                    ) : (
+                      <th className="px-4 py-3 font-semibold">No columns selected</th>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
                   {isLoading ? (
                     <tr>
-                      <td className="px-4 py-8 text-center text-subtle-text" colSpan={10}>
+                      <td className="px-4 py-8 text-center text-subtle-text" colSpan={tableColumnCount}>
                         <span className="inline-flex items-center gap-2">
                           <Icon path={mdi.mdiLoading} className="h-4 w-4 animate-spin" />
-                          Loading Report 104 from OrderCloud...
+                          Loading product and inventory analytics from OrderCloud...
                         </span>
+                      </td>
+                    </tr>
+                  ) : visibleTableColumns.length === 0 ? (
+                    <tr>
+                      <td className="px-4 py-8 text-center text-subtle-text" colSpan={tableColumnCount}>
+                        Select at least one column to view table data.
                       </td>
                     </tr>
                   ) : rows.length === 0 ? (
                     <tr>
-                      <td className="px-4 py-8 text-center text-subtle-text" colSpan={10}>
+                      <td className="px-4 py-8 text-center text-subtle-text" colSpan={tableColumnCount}>
                         No inventory reporting rows found from OrderCloud.
                       </td>
                     </tr>
                   ) : (
                     rows.map((row) => (
                       <tr key={row.id} className="border-b border-sidebar-border/70 last:border-b-0">
-                        <td className="px-4 py-3 font-medium text-body-text">{row.purchasedBy}</td>
-                        <td className="px-4 py-3 text-body-text">{row.transactionDate}</td>
-                        <td className="px-4 py-3 text-body-text">{row.transactionReceipt}</td>
-                        <td className="px-4 py-3">
-                          <Badge colorScheme={/fail|cancel|declin|problem/i.test(row.transactionStatus) ? "danger" : "success"}>
-                            {row.transactionStatus}
-                          </Badge>
-                        </td>
-                        <td className="px-4 py-3 text-body-text">{row.product}</td>
-                        <td className="px-4 py-3 text-body-text">{row.quantityPurchased}</td>
-                        <td className="px-4 py-3 text-body-text">{formatCurrency(row.unitCost)}</td>
-                        <td className="px-4 py-3 font-medium text-body-text">{formatCurrency(row.amount)}</td>
-                        <td className="px-4 py-3 text-body-text">{row.inventoryBalanceQuantity}</td>
-                        <td className="px-4 py-3">
-                          <Badge colorScheme={row.validityStatus.toLowerCase() === "expired" ? "warning" : "primary"}>
-                            {row.validityStatus}
-                          </Badge>
-                        </td>
+                        {visibleTableColumns.map((column) => (
+                          <td key={column.key} className="px-4 py-3 text-body-text">
+                            {column.render(row)}
+                          </td>
+                        ))}
                       </tr>
                     ))
                   )}

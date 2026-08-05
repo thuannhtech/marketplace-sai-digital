@@ -1,7 +1,7 @@
 "use client";
 
 import * as mdi from "@mdi/js";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -51,16 +51,9 @@ interface FabricSyncResponse {
   error?: string;
 }
 
-type TableColumnKey =
-  | "purchasedBy"
-  | "transactionDate"
-  | "transactionReceipt"
-  | "transactionStatus"
-  | "product"
-  | "quantityPurchased"
-  | "unitCost"
-  | "amount"
-  | "inventoryBalanceQuantity";
+interface ReportCachePayload extends Report104Response {
+  cachedAtUtc: string;
+}
 
 const emptySummary: Report104Summary = {
   totalTransactions: 0,
@@ -72,6 +65,8 @@ const emptySummary: Report104Summary = {
   convertedEtickets: 0,
   expiredItems: 0,
 };
+
+const reportCacheKey = "Transactions";
 
 function formatCurrency(value: number): string {
   return new Intl.NumberFormat("en-US", {
@@ -93,70 +88,6 @@ const csvColumns: { header: string; value: (row: Report104InventoryRow) => unkno
   { header: "inventory_balance", value: (row) => row.inventoryBalanceQuantity },
   { header: "validity", value: (row) => row.validityStatus },
 ];
-
-const tableColumns: {
-  key: TableColumnKey;
-  label: string;
-  render: (row: Report104InventoryRow) => ReactNode;
-}[] = [
-  {
-    key: "purchasedBy",
-    label: "Purchased By",
-    render: (row) => <span className="font-medium text-body-text">{row.purchasedBy}</span>,
-  },
-  {
-    key: "transactionDate",
-    label: "Transaction Date",
-    render: (row) => row.transactionDate,
-  },
-  {
-    key: "transactionReceipt",
-    label: "Receipt",
-    render: (row) => row.transactionReceipt,
-  },
-  {
-    key: "transactionStatus",
-    label: "Status",
-    render: (row) => (
-      <Badge colorScheme={/fail|cancel|declin|problem/i.test(row.transactionStatus) ? "danger" : "success"}>
-        {row.transactionStatus}
-      </Badge>
-    ),
-  },
-  {
-    key: "product",
-    label: "Products",
-    render: (row) => row.product,
-  },
-  {
-    key: "quantityPurchased",
-    label: "Qty",
-    render: (row) => row.quantityPurchased,
-  },
-  {
-    key: "unitCost",
-    label: "Unit Cost",
-    render: (row) => formatCurrency(row.unitCost),
-  },
-  {
-    key: "amount",
-    label: "Amount",
-    render: (row) => <span className="font-medium text-body-text">{formatCurrency(row.amount)}</span>,
-  },
-  {
-    key: "inventoryBalanceQuantity",
-    label: "Inventory Balance",
-    render: (row) => row.inventoryBalanceQuantity,
-  },
-];
-
-const defaultVisibleColumns = tableColumns.reduce(
-  (visibleColumns, column) => ({
-    ...visibleColumns,
-    [column.key]: true,
-  }),
-  {} as Record<TableColumnKey, boolean>,
-);
 
 function formatTimestampForFileName(date: Date): string {
   const yyyy = String(date.getFullYear());
@@ -187,75 +118,42 @@ function toReport104Csv(rows: Report104InventoryRow[]) {
   return [header, ...body].join("\r\n");
 }
 
-interface ChartDatum {
-  label: string;
-  value: number;
+function readReportCache(): ReportCachePayload | null {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const cachedValue = window.localStorage.getItem(reportCacheKey);
+    if (!cachedValue) return null;
+
+    const cachedReport = JSON.parse(cachedValue) as Partial<ReportCachePayload>;
+    if (!Array.isArray(cachedReport.rows) || !cachedReport.summary) return null;
+
+    return {
+      rows: cachedReport.rows,
+      summary: { ...emptySummary, ...cachedReport.summary },
+      lastSyncUtc: cachedReport.lastSyncUtc || "",
+      cachedAtUtc: cachedReport.cachedAtUtc || "",
+    };
+  } catch {
+    return null;
+  }
 }
 
-interface ChartDefinition {
-  title: string;
-  axisLabel: string;
-  data: ChartDatum[];
-  color?: "blue" | "orange";
-}
+function writeReportCache(data: Report104Response) {
+  if (typeof window === "undefined") return;
 
-function truncateLabel(value: string, maxLength = 18): string {
-  return value.length > maxLength ? `${value.slice(0, maxLength - 3)}...` : value;
-}
+  try {
+    const cachePayload: ReportCachePayload = {
+      rows: data.rows || [],
+      summary: data.summary || emptySummary,
+      lastSyncUtc: data.lastSyncUtc || "",
+      cachedAtUtc: new Date().toISOString(),
+    };
 
-function groupRows(rows: Report104InventoryRow[], getLabel: (row: Report104InventoryRow) => unknown, limit = 6): ChartDatum[] {
-  const counts = new Map<string, number>();
-
-  rows.forEach((row) => {
-    const rawLabel = getLabel(row);
-    const label = rawLabel === null || rawLabel === undefined || rawLabel === "" ? "N/A" : String(rawLabel);
-    counts.set(label, (counts.get(label) || 0) + 1);
-  });
-
-  return Array.from(counts.entries())
-    .map(([label, value]) => ({ label, value }))
-    .sort((a, b) => b.value - a.value || a.label.localeCompare(b.label))
-    .slice(0, limit);
-}
-
-function HorizontalBarChart({ title, axisLabel, data, color = "blue" }: ChartDefinition) {
-  const maxValue = Math.max(...data.map((item) => item.value), 1);
-  const barColor = color === "orange" ? "bg-[#e66a3a]" : "bg-[#2d8df0]";
-
-  return (
-    <div className="rounded-md border border-sidebar-border bg-white p-4 shadow-sm">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h3 className="text-sm font-semibold text-body-text">{title}</h3>
-          <p className="mt-1 text-[11px] text-subtle-text">{axisLabel}</p>
-        </div>
-        <Icon path={mdi.mdiDotsHorizontal} className="h-4 w-4 shrink-0 text-subtle-text" />
-      </div>
-
-      <div className="mt-4 space-y-3">
-        {data.length > 0 ? (
-          data.map((item) => (
-            <div key={item.label} className="grid grid-cols-[88px_1fr_24px] items-center gap-2 text-xs">
-              <span className="truncate text-right text-subtle-text" title={item.label}>
-                {truncateLabel(item.label)}
-              </span>
-              <div className="h-7 border-l border-dotted border-blackAlpha-300 bg-muted/40">
-                <div
-                  className={`flex h-7 items-center justify-end px-2 text-[11px] font-semibold text-white ${barColor}`}
-                  style={{ width: `${Math.max((item.value / maxValue) * 100, 10)}%` }}
-                >
-                  {item.value}
-                </div>
-              </div>
-              <span className="text-subtle-text">{item.value}</span>
-            </div>
-          ))
-        ) : (
-          <div className="flex h-32 items-center justify-center text-sm text-subtle-text">No chart data</div>
-        )}
-      </div>
-    </div>
-  );
+    window.localStorage.setItem(reportCacheKey, JSON.stringify(cachePayload));
+  } catch {
+    // Cache is a performance optimization; the report should keep working if storage is unavailable.
+  }
 }
 
 export default function ReportPage() {
@@ -267,10 +165,19 @@ export default function ReportPage() {
   const [error, setError] = useState("");
   const [fabricMessage, setFabricMessage] = useState("");
   const [fabricError, setFabricError] = useState("");
-  const [visibleColumns, setVisibleColumns] = useState<Record<TableColumnKey, boolean>>(defaultVisibleColumns);
 
-  async function loadReportData() {
-    setIsLoading(true);
+  async function loadReportData(options: { preferCache?: boolean; background?: boolean } = {}) {
+    const cachedReport = options.preferCache ? readReportCache() : null;
+
+    if (cachedReport) {
+      setRows(cachedReport.rows);
+      setSummary(cachedReport.summary);
+      setLastSyncUtc(cachedReport.lastSyncUtc);
+      setIsLoading(false);
+    } else if (!options.background) {
+      setIsLoading(true);
+    }
+
     setError("");
 
     try {
@@ -283,13 +190,27 @@ export default function ReportPage() {
         throw new Error(data.error || `Product and inventory analytics API failed with status ${response.status}.`);
       }
       
-      setRows(data.rows || []);
-      setSummary(data.summary || emptySummary);     
-      setLastSyncUtc(data.lastSyncUtc || "");
+      const reportData: Report104Response = {
+        rows: data.rows || [],
+        summary: data.summary || emptySummary,
+        lastSyncUtc: data.lastSyncUtc || "",
+      };
+      const hasTransactionChange =
+        !cachedReport || cachedReport.summary.totalTransactions !== reportData.summary.totalTransactions;
+
+      writeReportCache(reportData);
+
+      if (hasTransactionChange || !options.background) {
+        setRows(reportData.rows);
+        setSummary(reportData.summary);
+        setLastSyncUtc(reportData.lastSyncUtc);
+      }
     } catch (loadError) {
-      setRows([]);
-      setSummary(emptySummary);
-      setLastSyncUtc("");
+      if (!cachedReport) {
+        setRows([]);
+        setSummary(emptySummary);
+        setLastSyncUtc("");
+      }
       setError(loadError instanceof Error ? loadError.message : "Unable to load product and inventory analytics data from OrderCloud.");
     }
 
@@ -335,15 +256,8 @@ export default function ReportPage() {
     URL.revokeObjectURL(url);
   }
 
-  function toggleColumn(columnKey: TableColumnKey) {
-    setVisibleColumns((currentColumns) => ({
-      ...currentColumns,
-      [columnKey]: !currentColumns[columnKey],
-    }));
-  }
-
   useEffect(() => {
-    void loadReportData();
+    void loadReportData({ preferCache: true, background: true });
   }, []);
 
   const metricCards = useMemo(
@@ -357,50 +271,6 @@ export default function ReportPage() {
     ],
     [summary],
   );
-
-  const fabricCharts = useMemo<ChartDefinition[]>(
-    () => [
-      {
-        title: "Count of amount by status",
-        axisLabel: "status",
-        data: groupRows(rows, (row) => row.transactionStatus, 5),
-      },
-      {
-        title: "Count of amount by qty",
-        axisLabel: "qty",
-        data: groupRows(rows, (row) => row.quantityPurchased, 5),
-      },
-      {
-        title: "Count of amount by inventory_balance",
-        axisLabel: "inventory_balance",
-        data: groupRows(rows, (row) => row.inventoryBalanceQuantity, 6),
-      },
-      {
-        title: "Count of amount by purchased_by",
-        axisLabel: "purchased_by",
-        data: groupRows(rows, (row) => row.purchasedBy, 6),
-      },
-      {
-        title: "Count of amount by unit_cost",
-        axisLabel: "unit_cost",
-        data: groupRows(rows, (row) => row.unitCost, 6),
-      },
-      {
-        title: "Count of product inventory analytics by receipt",
-        axisLabel: "receipt",
-        data: groupRows(rows, (row) => row.transactionReceipt, 7),
-        color: "orange",
-      },
-    ],
-    [rows],
-  );
-
-  const visibleTableColumns = useMemo(
-    () => tableColumns.filter((column) => visibleColumns[column.key]),
-    [visibleColumns],
-  );
-
-  const tableColumnCount = Math.max(visibleTableColumns.length, 1);
 
   return (
     <div className="space-y-6">
@@ -510,37 +380,6 @@ export default function ReportPage() {
               </div>
             ))}
           </div>
-
-          <div className="rounded-md border border-sidebar-border bg-white px-4 py-4">
-            <div className="flex flex-col gap-3 border-b border-sidebar-border pb-3 lg:flex-row lg:items-end lg:justify-between">
-              <div>
-                <p className="text-xl font-medium text-body-text">Quick summary</p>
-                <p className="text-sm text-subtle-text">product_inventory_analytics</p>
-              </div>
-              <div className="flex flex-wrap gap-6 text-sm text-body-text">
-                <div className="flex items-center gap-3">
-                  <span className="h-8 w-1 bg-[#2d8df0]" />
-                  <span>
-                    <strong>{summary.totalAmount.toLocaleString()}</strong>
-                    <span className="ml-2 text-subtle-text">Sum of amount</span>
-                  </span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="h-8 w-1 bg-[#e66a3a]" />
-                  <span>
-                    <strong>{rows.length.toLocaleString()}</strong>
-                    <span className="ml-2 text-subtle-text">Count of product inventory analytics</span>
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-3">
-              {fabricCharts.map((chart) => (
-                <HorizontalBarChart key={chart.title} {...chart} />
-              ))}
-            </div>
-          </div>
         </CardContent>
       </Card>
 
@@ -551,14 +390,14 @@ export default function ReportPage() {
               <h2 className="text-lg font-semibold text-body-text">Microsoft Fabric Report</h2>
               <p className="text-sm text-subtle-text">Embedded Product & Inventory Analytics report from Microsoft Fabric.</p>
             </div>
-            <Badge colorScheme="cyan">Fabric</Badge>
+            <Badge colorScheme="cyan">Fabric Chart</Badge>
           </div>
 
           <div className="mt-4 overflow-hidden rounded-md border border-sidebar-border bg-white">
             <iframe
               title="Demo"
               src="https://app.fabric.microsoft.com/reportEmbed?reportId=054078ac-cb9d-450e-a02c-213245b097f4&autoAuth=true&ctid=0a9f795b-a1ab-4108-b2ca-d4fc6425bc1c"
-              className="h-[541px] w-full"
+              className="h-[900px] w-full xl:h-[1040px]"
               allowFullScreen
             />
           </div>
@@ -570,90 +409,18 @@ export default function ReportPage() {
           <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
             <div>
               <h2 className="text-lg font-semibold text-body-text">Product & Inventory Analytics Rows</h2>
-              <p className="text-sm text-subtle-text">
-                These rows are the same shape that should be landed into Fabric gold table for the report.
-              </p>
+              <p className="text-sm text-subtle-text">These rows are the same shape that should be landed into Fabric gold table for the report.</p>
             </div>
-            <Badge colorScheme={rows.length > 0 ? "success" : "neutral"}>
-              {rows.length} rows
-            </Badge>
+            <Badge colorScheme="cyan">Fabric Table</Badge>
           </div>
 
-          <div className="mt-4 rounded-md border border-sidebar-border bg-white px-4 py-3">
-            <p className="text-sm font-semibold text-body-text">Columns</p>
-            <div className="mt-3 flex flex-wrap gap-3">
-              {tableColumns.map((column) => (
-                <label
-                  key={column.key}
-                  className="inline-flex h-9 items-center gap-2 rounded-md border border-sidebar-border bg-background px-3 text-sm text-body-text"
-                >
-                  <input
-                    type="checkbox"
-                    checked={visibleColumns[column.key]}
-                    onChange={() => toggleColumn(column.key)}
-                    className="h-4 w-4 accent-primary"
-                  />
-                  <span>{column.label}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-
-          <div className="mt-4 overflow-hidden rounded-md border border-sidebar-border">
-            <div className="w-full overflow-x-auto">
-              <table
-                className="w-full text-left text-sm"
-                style={{ minWidth: `${Math.max(visibleTableColumns.length * 150, 560)}px` }}
-              >
-                <thead className="bg-muted">
-                  <tr className="border-b border-sidebar-border">
-                    {visibleTableColumns.length > 0 ? (
-                      visibleTableColumns.map((column) => (
-                        <th key={column.key} className="px-4 py-3 font-semibold">
-                          {column.label}
-                        </th>
-                      ))
-                    ) : (
-                      <th className="px-4 py-3 font-semibold">No columns selected</th>
-                    )}
-                  </tr>
-                </thead>
-                <tbody>
-                  {isLoading ? (
-                    <tr>
-                      <td className="px-4 py-8 text-center text-subtle-text" colSpan={tableColumnCount}>
-                        <span className="inline-flex items-center gap-2">
-                          <Icon path={mdi.mdiLoading} className="h-4 w-4 animate-spin" />
-                          Loading product and inventory analytics from OrderCloud...
-                        </span>
-                      </td>
-                    </tr>
-                  ) : visibleTableColumns.length === 0 ? (
-                    <tr>
-                      <td className="px-4 py-8 text-center text-subtle-text" colSpan={tableColumnCount}>
-                        Select at least one column to view table data.
-                      </td>
-                    </tr>
-                  ) : rows.length === 0 ? (
-                    <tr>
-                      <td className="px-4 py-8 text-center text-subtle-text" colSpan={tableColumnCount}>
-                        No inventory reporting rows found from OrderCloud.
-                      </td>
-                    </tr>
-                  ) : (
-                    rows.map((row) => (
-                      <tr key={row.id} className="border-b border-sidebar-border/70 last:border-b-0">
-                        {visibleTableColumns.map((column) => (
-                          <td key={column.key} className="px-4 py-3 text-body-text">
-                            {column.render(row)}
-                          </td>
-                        ))}
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+          <div className="mt-4 overflow-hidden rounded-md border border-sidebar-border bg-white">
+            <iframe
+              title="Report Table"
+              src="https://app.fabric.microsoft.com/reportEmbed?reportId=3fa4f320-561b-4947-8807-25c82b322e09&autoAuth=true&ctid=0a9f795b-a1ab-4108-b2ca-d4fc6425bc1c&filterPaneEnabled=false&navContentPaneEnabled=false"
+              className="h-[900px] w-full xl:h-[1040px]"
+              allowFullScreen
+            />
           </div>
         </CardContent>
       </Card>
