@@ -17,6 +17,7 @@ const routeMap: Record<string, string> = {
   "/promotions": "Promotion Listing",
   "/admin/users": "User & Role Management",
   "/gst-configuration": "GST Configuration",
+  "/report": "Product & Inventory Analytics",
 };
 
 export function Header() {

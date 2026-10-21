@@ -659,4 +659,35 @@
   .layout-container {
     container-type: inline-size;
   }
+
+  .report-chart-bar {
+    transform-origin: left center;
+  }
+
+  .report-chart-bar::after {
+    animation: report-chart-bar-shine 1.4s ease-out both;
+    animation-delay: inherit;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.46), transparent);
+    content: "";
+    inset: 0;
+    position: absolute;
+    transform: translateX(-120%);
+  }
+}
+
+@keyframes report-chart-bar-shine {
+  0% {
+    transform: translateX(-120%);
+  }
+  55%,
+  100% {
+    transform: translateX(120%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .report-chart-bar,
+  .report-chart-bar::after {
+    animation: none;
+  }
 }

@@ -67,6 +67,26 @@ export const siteNavigationGroups: SiteNavigationGroup[] = [
     ],
   },
   {
+    title: "Reports",
+    items: [
+      {
+        title: "Product & Inventory Analytics",
+        url: "/report",
+        icon: mdi.mdiChartBoxOutline,
+      },
+    ],
+  },
+  {
+    title: "Reports",
+    items: [
+      {
+        title: "Product & Inventory Analytics",
+        url: "/report",
+        icon: mdi.mdiChartBoxOutline,
+      },
+    ],
+  },
+  {
     title: "Tax Configuration",
     items: [
       {
