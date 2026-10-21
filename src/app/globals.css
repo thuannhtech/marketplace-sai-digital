@@ -481,12 +481,12 @@
 }
 
 :root {
-    --background: var(--color-white);
-    --foreground: var(--color-blackAlpha-900);
-    --card: var(--background);
-    --card-foreground: var(--foreground);
-    --popover: var(--background);
-    --popover-foreground: var(--foreground);
+    --background: #ffffff;
+    --foreground: #171717;
+    --card: #ffffff;
+    --card-foreground: #171717;
+    --popover: #ffffff;
+    --popover-foreground: #171717;
     --primary: var(--color-primary-500);
     --primary-foreground: var(--color-primary-600);
     --secondary: var(--muted);

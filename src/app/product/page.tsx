@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Icon } from "@/lib/icon";
+import { useAuth } from "@/src/hooks/use-auth";
 import { createProduct, updateProduct } from "@/src/lib/api/products-api";
 
 import { CreateProductBody, CreateProductImage, ProductRow } from "@/src/lib/domain/product/product.types";
@@ -129,7 +130,7 @@ function formatSitecoreMultilistValue(itemIds: string[]): string {
 
 function isMissingOrdercloudId(value?: string): boolean {
   const normalizedValue = value?.trim();
-  return !normalizedValue || normalizedValue?.length === 0|| normalizedValue === "N/A";
+  return !normalizedValue || normalizedValue?.length === 0 || normalizedValue === "N/A";
 }
 
 function normalizeMediaItemId(value: string): string {
@@ -387,11 +388,10 @@ const MediaLibraryGrid = memo(function MediaLibraryGrid({
           return (
             <label
               key={item.itemId}
-              className={`group cursor-pointer overflow-hidden rounded-md border transition-colors ${
-                selected
+              className={`group cursor-pointer overflow-hidden rounded-md border transition-colors ${selected
                   ? "border-primary ring-1 ring-primary"
                   : "border-sidebar-border hover:bg-muted"
-              }`}
+                }`}
             >
               <div className="relative aspect-square bg-muted">
                 <input
@@ -427,6 +427,8 @@ const ProductTable = memo(function ProductTable({
   onNextPage,
   onEditRow,
   onDeleteRow,
+  isWritable,
+  isApprover,
 }: {
   isFetching: boolean;
   paginatedRows: ProductRow[];
@@ -438,6 +440,8 @@ const ProductTable = memo(function ProductTable({
   onNextPage: () => void;
   onEditRow: (row: ProductRow) => void;
   onDeleteRow: (row: ProductRow) => void;
+  isWritable?: boolean;
+  isApprover?: boolean;
 }) {
   return (
     <Card className="border-sidebar-border">
@@ -483,14 +487,32 @@ const ProductTable = memo(function ProductTable({
                       </Badge>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <Button type="button" variant="outline" size="sm" onClick={() => onEditRow(row)}>
-                          Update
-                        </Button>
-                        <Button type="button" variant="outline" size="sm" colorScheme="danger" onClick={() => onDeleteRow(row)}>
-                          Delete
-                        </Button>
-                      </div>
+                      {isWritable ? (
+                        <div className="flex items-center gap-2">
+                          <Button type="button" variant="outline" size="sm" onClick={() => onEditRow(row)}>
+                            Update
+                          </Button>
+                          <Button type="button" variant="outline" size="sm" colorScheme="danger" onClick={() => onDeleteRow(row)}>
+                            Delete
+                          </Button>
+                        </div>
+                      ) : isApprover ? (
+                        <div className="flex items-center gap-2">
+                          <Button type="button" variant="outline" size="sm" onClick={() => onEditRow(row)}>
+                            <Icon path={mdi.mdiClipboardCheckOutline} className="mr-1 h-3.5 w-3.5 text-emerald-600" />
+                            Review & Approve
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <Button type="button" variant="ghost" size="sm" onClick={() => onEditRow(row)}>
+                            View
+                          </Button>
+                          <Badge colorScheme="neutral" className="text-xs font-normal">
+                            ReadOnly
+                          </Badge>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 ))
@@ -533,9 +555,11 @@ const ProductTable = memo(function ProductTable({
 function HtmlDescriptionEditor({
   value,
   onChange,
+  disabled = false,
 }: {
   value: string;
   onChange: (value: string) => void;
+  disabled?: boolean;
 }) {
   const editorRef = useRef<HTMLDivElement>(null);
 
@@ -558,51 +582,53 @@ function HtmlDescriptionEditor({
   }
 
   return (
-    <div className="overflow-hidden rounded-md border border-input bg-body-bg">
-      <div className="flex flex-wrap gap-1 border-b border-input bg-muted p-1">
-        <Button type="button" variant="ghost" size="icon" aria-label="Bold" onClick={() => runCommand("bold")}>
-          <Icon path={mdi.mdiFormatBold} className="h-4 w-4" />
-        </Button>
-        <Button type="button" variant="ghost" size="icon" aria-label="Italic" onClick={() => runCommand("italic")}>
-          <Icon path={mdi.mdiFormatItalic} className="h-4 w-4" />
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          aria-label="Bulleted list"
-          onClick={() => runCommand("insertUnorderedList")}
-        >
-          <Icon path={mdi.mdiFormatListBulleted} className="h-4 w-4" />
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          aria-label="Numbered list"
-          onClick={() => runCommand("insertOrderedList")}
-        >
-          <Icon path={mdi.mdiFormatListNumbered} className="h-4 w-4" />
-        </Button>
-        <Button type="button" variant="ghost" size="icon" aria-label="Link" onClick={addLink}>
-          <Icon path={mdi.mdiLinkVariant} className="h-4 w-4" />
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          aria-label="Clear formatting"
-          onClick={() => runCommand("removeFormat")}
-        >
-          <Icon path={mdi.mdiFormatClear} className="h-4 w-4" />
-        </Button>
-      </div>
+    <div className={`overflow-hidden rounded-md border border-input ${disabled ? "bg-neutral-50/70 opacity-90 cursor-not-allowed" : "bg-body-bg"}`}>
+      {!disabled && (
+        <div className="flex flex-wrap gap-1 border-b border-input bg-muted p-1">
+          <Button type="button" variant="ghost" size="icon" aria-label="Bold" onClick={() => runCommand("bold")}>
+            <Icon path={mdi.mdiFormatBold} className="h-4 w-4" />
+          </Button>
+          <Button type="button" variant="ghost" size="icon" aria-label="Italic" onClick={() => runCommand("italic")}>
+            <Icon path={mdi.mdiFormatItalic} className="h-4 w-4" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label="Bulleted list"
+            onClick={() => runCommand("insertUnorderedList")}
+          >
+            <Icon path={mdi.mdiFormatListBulleted} className="h-4 w-4" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label="Numbered list"
+            onClick={() => runCommand("insertOrderedList")}
+          >
+            <Icon path={mdi.mdiFormatListNumbered} className="h-4 w-4" />
+          </Button>
+          <Button type="button" variant="ghost" size="icon" aria-label="Link" onClick={addLink}>
+            <Icon path={mdi.mdiLinkVariant} className="h-4 w-4" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label="Clear formatting"
+            onClick={() => runCommand("removeFormat")}
+          >
+            <Icon path={mdi.mdiFormatClear} className="h-4 w-4" />
+          </Button>
+        </div>
+      )}
       <div
         ref={editorRef}
         id="description"
-        className="min-h-32 w-full px-3 py-2 text-sm text-body-text outline-none empty:before:text-muted-foreground empty:before:content-[attr(data-placeholder)]"
-        contentEditable
-        data-placeholder="Write a short product description"
+        className={`min-h-32 w-full px-3 py-2 text-sm text-body-text outline-none empty:before:text-muted-foreground empty:before:content-[attr(data-placeholder)] ${disabled ? "cursor-not-allowed pointer-events-none select-text" : ""}`}
+        contentEditable={!disabled}
+        data-placeholder={disabled ? "No description provided." : "Write a short product description"}
         onInput={(event) => onChange(event.currentTarget.innerHTML)}
         suppressContentEditableWarning
       />
@@ -638,6 +664,9 @@ function extractMutationProductId(payload: unknown): string | undefined {
 
 export default function ProductPage() {
   const { client, isInitialized, isLoading } = useMarketplace();
+  const { canWrite, canApprove } = useAuth();
+  const isWritable = canWrite("/product");
+  const isApprover = canApprove("/product");
   const [rows, setRows] = useState<ProductRow[]>([]);
   const [modelFilter, setModelFilter] = useState("");
   const [pendingModelFilter, setPendingModelFilter] = useState("");
@@ -678,6 +707,7 @@ export default function ProductPage() {
     isCreating || isProcessingImages || isUploadingToMediaLibrary || isMediaLibraryLoading || isSwitchingEditLanguage;
   const hasCreatedPendingPublish = !editingProduct && Boolean(pendingLocalPublishProduct?.id);
   const canShowPublishActions =
+    (isApprover || isWritable) &&
     Boolean(pendingLocalPublishProduct) &&
     (!editingProduct || normalizeStatus(editingProduct.status) === STATUS_DRAFT);
   const selectedProductLanguageLabel = getProductLanguageLabel(createForm.language);
@@ -736,6 +766,10 @@ export default function ProductPage() {
   }
 
   function handleOpenCreateModal() {
+    if (!isWritable) {
+      showMessage("You do not have permission to create products.", "destructive");
+      return;
+    }
     clearMessage();
     setEditingProduct(null);
     setPendingLocalPublishProduct(null);
@@ -804,24 +838,24 @@ export default function ProductPage() {
         !localizedProduct.mediaItemIds || localizedProduct.mediaItemIds.length === 0
           ? currentEditingProduct.mediaItemIds ?? []
           : localizedProduct.mediaItemIds;
-      
+
 
       setEditingProduct((prev) =>
         prev
           ? {
-              ...prev,
-              ...localizedProduct,
-              language,
-              ordercloud_id: resolvedOrdercloudId,
-              mediaItemIds: resolvedMediaItemIds,
-            }
+            ...prev,
+            ...localizedProduct,
+            language,
+            ordercloud_id: resolvedOrdercloudId,
+            mediaItemIds: resolvedMediaItemIds,
+          }
           : prev
       );
       setCreateForm((prev) => ({
         ...prev,
         language,
         model_name: localizedProduct.modelName === 'N/A' ? '' : localizedProduct.modelName,
-        desc: localizedProduct.description?.includes('N/A') ? '' : localizedProduct.description, 
+        desc: localizedProduct.description?.includes('N/A') ? '' : localizedProduct.description,
         price: resolvedPrice,
         quantity: resolvedQuantity,
       }));
@@ -835,6 +869,10 @@ export default function ProductPage() {
   }
 
   function handleOpenDeleteConfirm(product: ProductRow) {
+    if (!isWritable) {
+      showMessage("You do not have permission to delete products.", "destructive");
+      return;
+    }
     clearMessage();
     setPendingDeleteProduct({
       id: product.id,
@@ -895,11 +933,11 @@ export default function ProductPage() {
     setEditingProduct((prev) =>
       prev
         ? {
-            ...prev,
-            mediaItemIds: (prev.mediaItemIds ?? []).filter(
-              (id) => normalizeMediaItemId(id) !== normalizedTargetId,
-            ),
-          }
+          ...prev,
+          mediaItemIds: (prev.mediaItemIds ?? []).filter(
+            (id) => normalizeMediaItemId(id) !== normalizedTargetId,
+          ),
+        }
         : prev
     );
   }, []);
@@ -1039,6 +1077,11 @@ export default function ProductPage() {
   }
 
   async function handleCreateProduct() {
+    if (!isWritable) {
+      showMessage("You do not have permission to modify products.", "destructive");
+      return;
+    }
+
     if (!createForm.model_name.trim()) {
       showMessage("Model name is required.", "destructive");
       return;
@@ -1142,6 +1185,10 @@ export default function ProductPage() {
 
   async function handleDeleteProduct() {
     if (!pendingDeleteProduct) return;
+    if (!isWritable) {
+      showMessage("You do not have permission to delete products.", "destructive");
+      return;
+    }
     if (!client || !isInitialized) {
       showMessage("Marketplace client is not ready for web database publish.", "destructive");
       return;
@@ -1268,9 +1315,8 @@ export default function ProductPage() {
       {toast ? (
         <div className="fixed right-4 top-4 z-[80]">
           <div
-            className={`flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-medium text-white shadow-[0_14px_40px_rgba(15,23,42,0.18)] ${
-              toast.variant === "success" ? "bg-green-600" : "bg-destructive"
-            }`}
+            className={`flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-medium text-white shadow-[0_14px_40px_rgba(15,23,42,0.18)] ${toast.variant === "success" ? "bg-green-600" : "bg-destructive"
+              }`}
             role="status"
             aria-live="polite"
           >
@@ -1290,12 +1336,14 @@ export default function ProductPage() {
       <Card className="border-sidebar-border">
         <CardContent className="space-y-4 p-4">
           <div className="flex flex-col gap-3 md:flex-row md:items-center">
-            <div className="md:ml-auto">
-              <Button onClick={handleOpenCreateModal}>
-                <Icon path={mdi.mdiPlus} className="mr-2 h-4 w-4" />
-                Create New Product
-              </Button>
-            </div>
+            {isWritable && (
+              <div className="md:ml-auto">
+                <Button onClick={handleOpenCreateModal}>
+                  <Icon path={mdi.mdiPlus} className="mr-2 h-4 w-4" />
+                  Create New Product
+                </Button>
+              </div>
+            )}
           </div>
 
           <div className="flex flex-col gap-3 md:flex-row md:items-center">
@@ -1389,10 +1437,22 @@ export default function ProductPage() {
           <DialogHeader>
             <div className="border-b border-sidebar-border px-6 py-5">
               <DialogTitle className="text-xl font-semibold text-body-text">
-                {editingProduct ? "Update Model" : "Add New Model"}
+                {editingProduct
+                  ? isWritable
+                    ? "Update Model"
+                    : isApprover
+                      ? "Review Model"
+                      : "View Model"
+                  : "Add New Model"}
               </DialogTitle>
               <p className="mt-1 text-sm text-subtle-text">
-                {editingProduct ? `Update ${editingProduct.modelName}` : "Create a new product model"}
+                {editingProduct
+                  ? isWritable
+                    ? `Update ${editingProduct.modelName}`
+                    : isApprover
+                      ? `Review & approve ${editingProduct.modelName}`
+                      : `View details for ${editingProduct.modelName}`
+                  : "Create a new product model"}
               </p>
             </div>
           </DialogHeader>
@@ -1407,11 +1467,11 @@ export default function ProductPage() {
                         : "Creating product..."
                       : isSwitchingEditLanguage
                         ? "Loading product..."
-                      : isUploadingToMediaLibrary
-                        ? "Uploading images..."
-                        : isMediaLibraryLoading
-                          ? "Loading media library..."
-                          : "Processing images..."
+                        : isUploadingToMediaLibrary
+                          ? "Uploading images..."
+                          : isMediaLibraryLoading
+                            ? "Loading media library..."
+                            : "Processing images..."
                   }
                 />
               </div>
@@ -1486,6 +1546,7 @@ export default function ProductPage() {
                       <Input
                         id="model-name"
                         value={createForm.model_name}
+                        disabled={!isWritable}
                         onChange={(event) =>
                           setCreateForm((prev) => ({ ...prev, model_name: event.target.value }))
                         }
@@ -1506,7 +1567,7 @@ export default function ProductPage() {
                           onChange={(event) =>
                             setCreateForm((prev) => ({ ...prev, price: Number(event.target.value) || 0 }))
                           }
-                          disabled={!canEditPriceAndQuantity}
+                          disabled={!isWritable || !canEditPriceAndQuantity}
                         />
                       </div>
                       <div className="space-y-2">
@@ -1522,7 +1583,7 @@ export default function ProductPage() {
                           onChange={(event) =>
                             setCreateForm((prev) => ({ ...prev, quantity: Number(event.target.value) || 0 }))
                           }
-                          disabled={!canEditPriceAndQuantity}
+                          disabled={!isWritable || !canEditPriceAndQuantity}
                         />
                       </div>
                     </div>
@@ -1541,6 +1602,7 @@ export default function ProductPage() {
                       <HtmlDescriptionEditor
                         value={createForm.desc}
                         onChange={(desc) => setCreateForm((prev) => ({ ...prev, desc }))}
+                        disabled={!isWritable}
                       />
                     </div>
                   </div>
@@ -1646,20 +1708,22 @@ export default function ProductPage() {
               }}
               disabled={isCreateModalBusy}
             >
-              Cancel
+              {isWritable ? "Cancel" : "Close"}
             </Button>
-            <Button onClick={handleCreateProduct} disabled={isCreateModalBusy || hasCreatedPendingPublish}>
-              {isCreating ? (
-                <BlokLoader label={editingProduct ? "Saving..." : "Creating..."} />
-              ) : hasCreatedPendingPublish ? (
-                "Created"
-              ) : (
-                <>
-                  <Icon path={mdi.mdiPlus} className="mr-2 h-4 w-4" />
-                  {editingProduct ? "Save Changes" : "Create Model"}
-                </>
-              )}
-            </Button>
+            {isWritable && (
+              <Button onClick={handleCreateProduct} disabled={isCreateModalBusy || hasCreatedPendingPublish}>
+                {isCreating ? (
+                  <BlokLoader label={editingProduct ? "Saving..." : "Creating..."} />
+                ) : hasCreatedPendingPublish ? (
+                  "Created"
+                ) : (
+                  <>
+                    <Icon path={mdi.mdiPlus} className="mr-2 h-4 w-4" />
+                    {editingProduct ? "Save Changes" : "Create Model"}
+                  </>
+                )}
+              </Button>
+            )}
           </DialogFooter>
 
           {isLocalPublishConfirmOpen && pendingLocalPublishProduct ? (
@@ -1693,6 +1757,10 @@ export default function ProductPage() {
                   <Button
                     type="button"
                     onClick={async () => {
+                      if (!isApprover && !isWritable) {
+                        showMessage("You do not have permission to approve products.", "destructive");
+                        return;
+                      }
                       if (!pendingLocalPublishProduct.id) {
                         showMessage("Missing product item ID for edge publish.", "destructive");
                         return;
@@ -1754,6 +1822,8 @@ export default function ProductPage() {
         onNextPage={handleNextPage}
         onEditRow={handleOpenUpdateModal}
         onDeleteRow={handleOpenDeleteConfirm}
+        isWritable={isWritable}
+        isApprover={isApprover}
       />
 
       {isDeleteConfirmOpen && pendingDeleteProduct ? (

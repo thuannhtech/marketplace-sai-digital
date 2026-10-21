@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cancelOrderAction, completeOrderAction, getOrderDetail } from "@/src/app/actions/ordercloud";
+import { useAuth } from "@/src/hooks/use-auth";
 
 function formatPrice(value: number) {
   return new Intl.NumberFormat("en-US", {
@@ -171,6 +172,8 @@ function InfoRow({ label, value, type = "text", badgeColor }: { label: string, v
 export default function OrderDetailPage() {
   const { id } = useParams() as { id: string };
   const router = useRouter();
+  const { canWrite } = useAuth();
+  const isWritable = canWrite("/orders");
   
   const [order, setOrder] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -297,18 +300,20 @@ export default function OrderDetailPage() {
           </h1>
           <p className="text-subtle-text">View detailed information for order {order.ID}</p>
         </div>
-        {getDisplayStatus(order) !== "CANCELLED" ? (
-          <div className="ml-auto flex items-center gap-3">
-            {getDisplayStatus(order) !== "COMPLETED" ? (
-              <Button onClick={() => void handleCompleteOrder()} disabled={isCompleting}>
-                {isCompleting ? "Completing..." : "Complete Order"}
+        <div className="ml-auto flex items-center gap-3">
+          {isWritable && getDisplayStatus(order) !== "CANCELLED" ? (
+            <>
+              {getDisplayStatus(order) !== "COMPLETED" ? (
+                <Button onClick={() => void handleCompleteOrder()} disabled={isCompleting}>
+                  {isCompleting ? "Completing..." : "Complete Order"}
+                </Button>
+              ) : null}
+              <Button colorScheme="danger" onClick={() => setIsCancelModalOpen(true)} disabled={isCancelling}>
+                Cancel Order
               </Button>
-            ) : null}
-            <Button colorScheme="danger" onClick={() => setIsCancelModalOpen(true)} disabled={isCancelling}>
-              Cancel Order
-            </Button>
-          </div>
-        ) : null}
+            </>
+          ) : null}
+        </div>
       </div>
       <div className="space-y-4">
           <CollapsibleSection title="Order Information" defaultOpen={true}>
