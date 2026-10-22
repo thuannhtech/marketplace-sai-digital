@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 import { OC_SESSION_COOKIE } from "@/src/lib/auth/constants";
 import { isTokenExpired } from "@/src/lib/auth/jwt-utils";
 import { canAccessPage, isSuperAdmin, getDefaultRedirectPage } from "@/src/lib/auth/role-utils";
+import { deserializeSession } from "@/src/lib/auth/session-cookie";
 
 // List of public paths that do not require authentication
 const PUBLIC_FILE = /\.(.*)$/;
@@ -22,15 +23,7 @@ export function middleware(request: NextRequest) {
   }
 
   const sessionCookie = request.cookies.get(OC_SESSION_COOKIE);
-  let sessionData: any = null;
-
-  if (sessionCookie?.value) {
-    try {
-      sessionData = JSON.parse(sessionCookie.value);
-    } catch {
-      sessionData = null;
-    }
-  }
+  const sessionData = deserializeSession(sessionCookie?.value);
 
   const token = sessionData?.accessToken;
   const isExpired = token ? isTokenExpired(token) : true;
@@ -41,7 +34,12 @@ export function middleware(request: NextRequest) {
     // If token is expired and cookie exists, delete cookie
     if (sessionCookie && isExpired) {
       const response = NextResponse.next();
-      response.cookies.delete(OC_SESSION_COOKIE);
+      response.cookies.set(OC_SESSION_COOKIE, "", {
+        path: "/",
+        maxAge: 0,
+        sameSite: "none",
+        secure: true,
+      });
       return response;
     }
 
@@ -69,7 +67,12 @@ export function middleware(request: NextRequest) {
 
     const response = NextResponse.redirect(loginUrl);
     if (sessionCookie) {
-      response.cookies.delete(OC_SESSION_COOKIE);
+      response.cookies.set(OC_SESSION_COOKIE, "", {
+        path: "/",
+        maxAge: 0,
+        sameSite: "none",
+        secure: true,
+      });
     }
     return response;
   }

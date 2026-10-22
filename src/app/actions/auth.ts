@@ -6,6 +6,7 @@ import { decodeJwt, extractRolesFromToken, isTokenExpired } from "@/src/lib/auth
 import { isSuperAdmin, getDefaultRedirectPage } from "@/src/lib/auth/role-utils";
 import { ALL_ORDERCLOUD_ROLES } from "@/src/lib/auth/roles-config";
 import { OC_SESSION_COOKIE } from "@/src/lib/auth/constants";
+import { serializeSession, deserializeSession } from "@/src/lib/auth/session-cookie";
 
 /**
  * Đăng nhập Admin User vào OrderCloud
@@ -113,10 +114,11 @@ export async function loginAdminAction(formData: { username?: string; password?:
     };
 
     const cookieStore = await cookies();
-    cookieStore.set(OC_SESSION_COOKIE, JSON.stringify(session), {
+    // Bắt buộc sameSite: "none" và secure: true để cookie hoạt động trong iframe của Sitecore XM Cloud
+    cookieStore.set(OC_SESSION_COOKIE, serializeSession(session), {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
+      secure: true,
+      sameSite: "none",
       path: "/",
       maxAge: Math.max(0, expiresAt - Math.floor(Date.now() / 1000)),
     });
@@ -137,7 +139,13 @@ export async function loginAdminAction(formData: { username?: string; password?:
  */
 export async function logoutAdminAction() {
   const cookieStore = await cookies();
-  cookieStore.delete(OC_SESSION_COOKIE);
+  cookieStore.set(OC_SESSION_COOKIE, "", {
+    httpOnly: true,
+    secure: true,
+    sameSite: "none",
+    path: "/",
+    maxAge: 0,
+  });
   return { success: true };
 }
 
@@ -157,7 +165,10 @@ export async function getCurrentAdminUserAction(): Promise<{
       return { success: false };
     }
 
-    const session: OrderCloudUserSession = JSON.parse(sessionCookie.value);
+    const session = deserializeSession(sessionCookie.value);
+    if (!session) {
+      return { success: false };
+    }
 
     // Kiểm tra token đã hết hạn chưa
     if (isTokenExpired(session.accessToken)) {

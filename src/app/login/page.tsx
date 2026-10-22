@@ -55,11 +55,13 @@ function LoginForm() {
 
       await refreshUser();
 
-      // Determine redirect target: redirectFrom if valid, otherwise go to home page "/"
+      // Determine redirect target: return to redirectFrom if specified, otherwise default home/product
       const targetUrl =
-        redirectFrom && redirectFrom !== "/login" && redirectFrom !== "/unauthorized"
+        redirectFrom &&
+        redirectFrom !== "/login" &&
+        redirectFrom !== "/unauthorized"
           ? redirectFrom
-          : "/";
+          : (result.targetUrl || "/");
 
       // Full navigation ensures cookie is re-read by server and middleware
       window.location.href = targetUrl;
@@ -175,7 +177,6 @@ function LoginForm() {
             <CardFooter className="pt-2 pb-6 flex flex-col gap-3">
               <Button
                 type="submit"
-                onClick={handleSubmit}
                 className="w-full h-11 font-medium text-base shadow-sm transition-all cursor-pointer"
                 disabled={isLoading}
               >
