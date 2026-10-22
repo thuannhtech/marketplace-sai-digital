@@ -53,22 +53,38 @@ export async function POST(req: NextRequest) {
     }
 
     // 2. Parse Body Payload
-    const rawBody = await req.json();
+    const rawBody = await req.json().catch(() => ({}));
 
-    // 3. Extract Headers & Metadata sent by Sitecore AI
-    const formIdHeader =
+    // 3. Extract Form ID & Name dynamically from: Query Params > Headers > Body Payload
+    const { searchParams } = new URL(req.url);
+
+    const detectedFormId =
+      searchParams.get('formId') ||
+      searchParams.get('formid') ||
+      searchParams.get('form_id') ||
+      searchParams.get('id') ||
       req.headers.get('x-formid') ||
       req.headers.get('x-form-id') ||
+      req.headers.get('formid') ||
+      req.headers.get('x-sitecore-formid') ||
       rawBody._formId ||
       rawBody.formId ||
+      rawBody.FormId ||
+      rawBody.form_id ||
       'sitecore-ai-form';
 
-    const formNameHeader =
+    const detectedFormName =
+      searchParams.get('formName') ||
+      searchParams.get('formname') ||
+      searchParams.get('form_name') ||
       req.headers.get('x-formname') ||
       req.headers.get('x-form-name') ||
+      req.headers.get('formname') ||
       rawBody._formName ||
       rawBody.formName ||
-      'Sitecore AI Form';
+      rawBody.FormName ||
+      rawBody.form_name ||
+      (detectedFormId !== 'sitecore-ai-form' ? `Form ${detectedFormId.substring(0, 12)}...` : 'Sitecore AI Form');
 
     const dateHeader = req.headers.get('date');
     const userAgent = req.headers.get('user-agent') || 'Sitecore Webhook Dispatcher';
@@ -78,8 +94,8 @@ export async function POST(req: NextRequest) {
     // 4. Save submission into storage
     const newSubmission: FormSubmission = {
       id: `sub-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-      formId: formIdHeader,
-      formName: formNameHeader,
+      formId: detectedFormId,
+      formName: detectedFormName,
       submittedAt: dateHeader && !isNaN(Date.parse(dateHeader)) ? new Date(dateHeader).toISOString() : new Date().toISOString(),
       pageUrl: referer,
       data: rawBody,
@@ -101,8 +117,8 @@ export async function POST(req: NextRequest) {
         message: 'Submission successfully received and stored.',
         submissionId: newSubmission.id,
         receivedData: {
-          formName: formNameHeader,
-          formId: formIdHeader,
+          formName: detectedFormName,
+          formId: detectedFormId,
           fieldsCount: Object.keys(rawBody).length,
         },
       },
