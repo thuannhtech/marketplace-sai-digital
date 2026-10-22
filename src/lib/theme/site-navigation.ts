@@ -75,18 +75,19 @@ export const siteNavigationGroups: SiteNavigationGroup[] = [
         icon: mdi.mdiChartBoxOutline,
         roles: ["ADMIN_CONTENTPRODUCT", "ADMIN_PRODUCT_READER"],
       },
-    ]
-  },
-  {
-    title: "Forms",
-    items: [
-      {
-        title: "Form Submissions",
-        url: "/forms",
-        icon: mdi.mdiTextBoxCheckOutline,
-      },
     ],
   },
+  // Temporarily hidden per user request:
+  // {
+  //   title: "Forms",
+  //   items: [
+  //     {
+  //       title: "Form Submissions",
+  //       url: "/forms",
+  //       icon: mdi.mdiTextBoxCheckOutline,
+  //     },
+  //   ],
+  // },
   {
     title: "Tax Configuration",
     items: [
