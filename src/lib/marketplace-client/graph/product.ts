@@ -417,7 +417,7 @@ export async function fetchMarketplaceProducts(
 ): Promise<ProductRow[]> {
   const queryClient = asMarketplaceSdkClient(client);
   const sitecoreProductsQuery = buildSitecoreProductsQuery(params?.language);
-
+  
   try {
     const sitecoreContextId = await resolveSitecoreContextId(queryClient);
 

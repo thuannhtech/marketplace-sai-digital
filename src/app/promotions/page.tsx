@@ -15,6 +15,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Icon } from "@/lib/icon";
+import { useAuth } from "@/src/hooks/use-auth";
 import { createPromotion, getPromotions, updatePromotion } from "@/src/app/actions/ordercloud";
 
 const ACTIVE_ALL = "all";
@@ -110,6 +111,9 @@ function getPromotionFormState(promotion?: any) {
 }
 
 export default function PromotionsPage() {
+  const { canWrite } = useAuth();
+  const isWritable = canWrite("/promotions");
+
   const [promotions, setPromotions] = useState<any[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [page, setPage] = useState(1);
@@ -229,6 +233,10 @@ export default function PromotionsPage() {
   }
 
   async function handleSavePromotion() {
+    if (!isWritable) {
+      setCreateError("You do not have permission to modify promotions.");
+      return;
+    }
     setCreateError("");
     if (!editingPromotionId && (!createForm.name.trim() || !createForm.code.trim())) {
       setCreateError("Name and Code are required.");
@@ -259,14 +267,14 @@ export default function PromotionsPage() {
       };
       const res = editingPromotionId
         ? await updatePromotion({
-            id: editingPromotionId,
-            ...basePayload,
-          })
+          id: editingPromotionId,
+          ...basePayload,
+        })
         : await createPromotion({
-            name: createForm.name,
-            code: createForm.code,
-            ...basePayload,
-          });
+          name: createForm.name,
+          code: createForm.code,
+          ...basePayload,
+        });
 
       if (!res.success) {
         setCreateError(res.error || `Failed to ${editingPromotionId ? "update" : "create"} promotion.`);
@@ -329,17 +337,19 @@ export default function PromotionsPage() {
                 Search
               </>}
             </Button>
-            <div className="md:ml-auto">
-              <Button
-                onClick={() => {
-                  resetCreateForm();
-                  setIsCreateOpen(true);
-                }}
-              >
-                <Icon path={mdi.mdiPlus} className="mr-2 h-4 w-4" />
-                Create New Promotion
-              </Button>
-            </div>
+            {isWritable && (
+              <div className="md:ml-auto">
+                <Button
+                  onClick={() => {
+                    resetCreateForm();
+                    setIsCreateOpen(true);
+                  }}
+                >
+                  <Icon path={mdi.mdiPlus} className="mr-2 h-4 w-4" />
+                  Create New Promotion
+                </Button>
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-1 gap-3 md:grid-cols-6 lg:grid-cols-12">
@@ -439,9 +449,15 @@ export default function PromotionsPage() {
                         </Badge>
                       </td>
                       <td className="px-4 py-3">
-                        <Button variant="outline" className="border-sidebar-border" onClick={() => openEditPromotion(promotion)}>
-                          Update
-                        </Button>
+                        {isWritable ? (
+                          <Button variant="outline" className="border-sidebar-border" onClick={() => openEditPromotion(promotion)}>
+                            Update
+                          </Button>
+                        ) : (
+                          <Badge colorScheme="neutral" className="text-xs font-normal">
+                            ReadOnly
+                          </Badge>
+                        )}
                       </td>
                     </tr>
                   ))
@@ -486,50 +502,53 @@ export default function PromotionsPage() {
           }
         }}
       >
-        <DialogContent className="border-sidebar-border p-0 sm:max-w-6xl">
-          <DialogHeader>
-            <div className="border-b border-sidebar-border px-6 py-5">
+        <DialogContent className="border-sidebar-border p-0 sm:max-w-6xl bg-white shadow-2xl overflow-hidden rounded-2xl">
+          <DialogHeader className="bg-white">
+            <div className="border-b border-sidebar-border px-6 py-5 bg-white">
               <DialogTitle className="text-xl font-semibold text-body-text">
-                {isEditMode ? "Update Promotion" : "Create Promotion"}
+                {isEditMode ? (isWritable ? "Update Promotion" : "Promotion Details") : "Create Promotion"}
               </DialogTitle>
             </div>
           </DialogHeader>
 
-          <div className="space-y-6 px-6 py-6">
+          <div className="space-y-6 px-6 py-6 bg-white">
             <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.2fr_0.8fr]">
               <div className="space-y-6">
-                <section className="overflow-hidden rounded-2xl border border-sidebar-border">
-                  <div className="border-b border-sidebar-border px-5 py-3">
+                <section className="overflow-hidden rounded-2xl border border-sidebar-border bg-white shadow-xs">
+                  <div className="border-b border-sidebar-border px-5 py-3 bg-neutral-50/70">
                     <h2 className="font-semibold text-body-text">Basic Information</h2>
                   </div>
                   <div className="space-y-5 px-5 py-5">
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                      <label className="flex items-center gap-3 rounded-xl border border-sidebar-border px-4 py-3 text-sm">
+                      <label className={`flex items-center gap-3 rounded-xl border border-sidebar-border bg-white ${isWritable ? "hover:bg-neutral-50/70 cursor-pointer" : "opacity-80 cursor-not-allowed"} px-4 py-3 text-sm transition-colors`}>
                         <input
                           type="checkbox"
                           checked={createForm.active}
                           onChange={(event) => setCreateForm((prev) => ({ ...prev, active: event.target.checked }))}
-                          className="h-4 w-4 accent-primary"
+                          disabled={!isWritable}
+                          className="h-4 w-4 accent-primary cursor-pointer disabled:cursor-not-allowed"
                         />
-                        <span>Active</span>
+                        <span className="font-medium text-neutral-800 select-none">Active</span>
                       </label>
-                      <label className="flex items-center gap-3 rounded-xl border border-sidebar-border px-4 py-3 text-sm">
+                      <label className={`flex items-center gap-3 rounded-xl border border-sidebar-border bg-white ${isWritable ? "hover:bg-neutral-50/70 cursor-pointer" : "opacity-80 cursor-not-allowed"} px-4 py-3 text-sm transition-colors`}>
                         <input
                           type="checkbox"
                           checked={createForm.autoApply}
                           onChange={(event) => setCreateForm((prev) => ({ ...prev, autoApply: event.target.checked }))}
-                          className="h-4 w-4 accent-primary"
+                          disabled={!isWritable}
+                          className="h-4 w-4 accent-primary cursor-pointer disabled:cursor-not-allowed"
                         />
-                        <span>Auto Apply</span>
+                        <span className="font-medium text-neutral-800 select-none">Auto Apply</span>
                       </label>
-                      <label className="flex items-center gap-3 rounded-xl border border-sidebar-border px-4 py-3 text-sm">
+                      <label className={`flex items-center gap-3 rounded-xl border border-sidebar-border bg-white ${isWritable ? "hover:bg-neutral-50/70 cursor-pointer" : "opacity-80 cursor-not-allowed"} px-4 py-3 text-sm transition-colors`}>
                         <input
                           type="checkbox"
                           checked={createForm.canCombine}
                           onChange={(event) => setCreateForm((prev) => ({ ...prev, canCombine: event.target.checked }))}
-                          className="h-4 w-4 accent-primary"
+                          disabled={!isWritable}
+                          className="h-4 w-4 accent-primary cursor-pointer disabled:cursor-not-allowed"
                         />
-                        <span>Can Combine</span>
+                        <span className="font-medium text-neutral-800 select-none">Can Combine</span>
                       </label>
                     </div>
 
@@ -540,7 +559,7 @@ export default function PromotionsPage() {
                           placeholder="Promotion name"
                           value={createForm.name}
                           onChange={(event) => setCreateForm((prev) => ({ ...prev, name: event.target.value }))}
-                          disabled={isEditMode}
+                          disabled={!isWritable || isEditMode}
                         />
                       </div>
                       <div className="space-y-2">
@@ -549,30 +568,31 @@ export default function PromotionsPage() {
                           placeholder="PROMO2026"
                           value={createForm.code}
                           onChange={(event) => setCreateForm((prev) => ({ ...prev, code: event.target.value.toUpperCase() }))}
-                          disabled={isEditMode}
+                          disabled={!isWritable || isEditMode}
                         />
                       </div>
                     </div>
                   </div>
                 </section>
-                <section className="overflow-hidden rounded-2xl border border-sidebar-border">
-                  <div className="border-b border-sidebar-border px-5 py-3">
+                <section className="overflow-hidden rounded-2xl border border-sidebar-border bg-white shadow-xs">
+                  <div className="border-b border-sidebar-border px-5 py-3 bg-neutral-50/70">
                     <h2 className="font-semibold text-body-text">Promotion Type</h2>
                   </div>
-                  <div className="space-y-5 px-5 py-5">
+                  <div className="space-y-5 px-5 py-5 bg-white">
                     <div className="space-y-3">
                       <Label>Type</Label>
                       <div className="grid grid-cols-1 gap-3">
                         {PROMOTION_TYPE_OPTIONS.map((option) => (
                           <label
                             key={option.value}
-                            className="flex items-center gap-3 rounded-xl border border-sidebar-border px-4 py-3 text-sm"
+                            className={`flex items-center gap-3 rounded-xl border border-sidebar-border bg-white ${isWritable ? "hover:bg-neutral-50/70 cursor-pointer" : "opacity-80 cursor-not-allowed"} px-4 py-3 text-sm transition-colors`}
                           >
                             <input
                               type="radio"
                               name="promotionType"
                               value={option.value}
                               checked={createForm.type === option.value}
+                              disabled={!isWritable}
                               onChange={() =>
                                 setCreateForm((prev) => ({
                                   ...prev,
@@ -583,9 +603,9 @@ export default function PromotionsPage() {
                                       : prev.amount,
                                 }))
                               }
-                              className="h-4 w-4 accent-primary"
+                              className="h-4 w-4 accent-primary cursor-pointer disabled:cursor-not-allowed"
                             />
-                            <span>{option.label}</span>
+                            <span className="font-medium text-neutral-800 select-none">{option.label}</span>
                           </label>
                         ))}
                       </div>
@@ -599,6 +619,7 @@ export default function PromotionsPage() {
                         step="0.01"
                         max={createForm.type === "Percentage" ? 100 : undefined}
                         value={createForm.amount}
+                        disabled={!isWritable}
                         onChange={(event) =>
                           setCreateForm((prev) => ({
                             ...prev,
@@ -620,6 +641,7 @@ export default function PromotionsPage() {
                         min={1}
                         step="1"
                         value={createForm.priority}
+                        disabled={!isWritable}
                         onChange={(event) => setCreateForm((prev) => ({ ...prev, priority: Number(event.target.value) || 1 }))}
                       />
                     </div>
@@ -628,18 +650,19 @@ export default function PromotionsPage() {
               </div>
 
               <div className="space-y-6">
-                <section className="overflow-hidden rounded-2xl border border-sidebar-border">
-                  <div className="border-b border-sidebar-border px-5 py-3">
+                <section className="overflow-hidden rounded-2xl border border-sidebar-border bg-white shadow-xs">
+                  <div className="border-b border-sidebar-border px-5 py-3 bg-neutral-50/70">
                     <h2 className="font-semibold text-body-text">Other Information</h2>
                   </div>
-                  <div className="space-y-5 px-5 py-5">
+                  <div className="space-y-5 px-5 py-5 bg-white">
                     <div className="grid grid-cols-1 gap-4">
                       <div className="space-y-2">
                         <Label>Promotion Message (EN)</Label>
                         <textarea
                           value={createForm.messageEn}
+                          disabled={!isWritable}
                           onChange={(event) => setCreateForm((prev) => ({ ...prev, messageEn: event.target.value }))}
-                          className="min-h-28 w-full rounded-md border border-input bg-body-bg px-3 py-2 text-sm text-body-text focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                          className="min-h-28 w-full rounded-md border border-input bg-white px-3 py-2 text-sm text-body-text focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-80 disabled:cursor-not-allowed"
                         />
                       </div>
                       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -648,6 +671,7 @@ export default function PromotionsPage() {
                           <Input
                             type="date"
                             value={createForm.startDate}
+                            disabled={!isWritable}
                             onChange={(event) => setCreateForm((prev) => ({ ...prev, startDate: event.target.value }))}
                           />
                         </div>
@@ -656,6 +680,7 @@ export default function PromotionsPage() {
                           <Input
                             type="date"
                             value={createForm.expirationDate}
+                            disabled={!isWritable}
                             onChange={(event) => setCreateForm((prev) => ({ ...prev, expirationDate: event.target.value }))}
                           />
                         </div>
@@ -665,7 +690,7 @@ export default function PromotionsPage() {
                 </section>
               </div>
             </div>
-            
+
           </div>
 
           {createError ? (
@@ -674,13 +699,15 @@ export default function PromotionsPage() {
             </div>
           ) : null}
 
-          <DialogFooter className="border-t border-sidebar-border px-6 py-4">
+          <DialogFooter className="border-t border-sidebar-border px-6 py-4 bg-neutral-50/70">
             <Button variant="outline" onClick={() => setIsCreateOpen(false)} disabled={isCreating}>
-              Cancel
+              {isWritable ? "Cancel" : "Close"}
             </Button>
-            <Button onClick={() => void handleSavePromotion()} disabled={isCreating}>
-              {isCreating ? "Saving..." : isEditMode ? "Update Promotion" : "Save Promotion"}
-            </Button>
+            {isWritable && (
+              <Button onClick={() => void handleSavePromotion()} disabled={isCreating}>
+                {isCreating ? "Saving..." : isEditMode ? "Update Promotion" : "Save Promotion"}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

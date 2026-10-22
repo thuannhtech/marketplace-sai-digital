@@ -359,7 +359,7 @@ export async function getIncomingOrders() {
   try {
     const auth = await getOrderCloudToken();
     if (!auth.success || !auth.token) {
-      throw new Error(`Không thể đăng nhập OrderCloud: ${auth.error}`);
+      throw new Error(`Failed to authenticate with OrderCloud: ${auth.error}`);
     }
 
     const { Orders, Tokens } = await import("ordercloud-javascript-sdk");
@@ -377,7 +377,7 @@ export async function getIncomingOrders() {
       errorMsg = error.errors.Errors[0].Message;
     }
     
-    return { success: false, error: `Lỗi khi lấy danh sách đơn hàng: ${errorMsg}` };
+    return { success: false, error: `Failed to fetch orders: ${errorMsg}` };
   }
 }
 
@@ -385,7 +385,7 @@ export async function getOrderDetail(orderId: string) {
   try {
     const auth = await getOrderCloudToken();
     if (!auth.success || !auth.token) {
-      throw new Error(`Không thể đăng nhập OrderCloud: ${auth.error}`);
+      throw new Error(`Failed to authenticate with OrderCloud: ${auth.error}`);
     }
 
     const { Orders, Tokens, LineItems, Me, Payments, CreditCards } = await import("ordercloud-javascript-sdk");
@@ -482,7 +482,7 @@ export async function getOrderDetail(orderId: string) {
     if (error.isOrderCloudError && error.errors && error.errors.Errors && error.errors.Errors[0]) {
       errorMsg = error.errors.Errors[0].Message;
     }
-    return { success: false, error: `Lỗi khi lấy chi tiết đơn hàng: ${errorMsg}` };
+    return { success: false, error: `Failed to fetch order details: ${errorMsg}` };
   }
 }
 

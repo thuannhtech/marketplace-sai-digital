@@ -3,6 +3,7 @@ import './globals.css'
 import { Geist } from "next/font/google";
 import { cn } from "@/lib/utils";
 import { MarketplaceProvider } from '@/src/providers/MarketplaceProvider'
+import { AuthProvider } from '@/src/providers/AuthProvider'
 import { BrowserLayout } from '@/src/components/layout/BrowserLayout'
 
 const geist = Geist({subsets:['latin'],variable:'--font-sans'});
@@ -20,11 +21,13 @@ export default function RootLayout({
   return (
     <html lang="en" className={cn("font-sans", geist.variable)}>
       <body className="antialiased selection:bg-primary-100 selection:text-primary-900">
-        <MarketplaceProvider>
-          <BrowserLayout>
-            {children}
-          </BrowserLayout>
-        </MarketplaceProvider>
+        <AuthProvider>
+          <MarketplaceProvider>
+            <BrowserLayout>
+              {children}
+            </BrowserLayout>
+          </MarketplaceProvider>
+        </AuthProvider>
       </body>
     </html>
   )

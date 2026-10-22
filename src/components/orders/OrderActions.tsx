@@ -13,6 +13,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cancelOrderAction, confirmOrderAction, completeOrderAction, updateOrderAction } from "@/src/app/actions/ordercloud";
+import { useAuth } from "@/src/hooks/use-auth";
 
 export default function OrderActions({
   order,
@@ -24,6 +25,8 @@ export default function OrderActions({
   onOrderUpdated?: () => Promise<void> | void;
 }) {
   const router = useRouter();
+  const { canWrite } = useAuth();
+  const isWritable = canWrite("/orders");
   
   // Modals state
   const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
@@ -105,6 +108,10 @@ export default function OrderActions({
 
   const hasMemo = order.xp?.CreditMemoExists; 
   const memoRejected = order.xp?.CreditMemoStatus === "REJECTED";
+
+  if (!isWritable) {
+    return null;
+  }
 
   return (
     <>

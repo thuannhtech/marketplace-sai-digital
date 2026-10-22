@@ -23,6 +23,7 @@ import {
   updateCustomer,
   updateCustomerAddress,
 } from "@/src/app/actions/ordercloud";
+import { useAuth } from "@/src/hooks/use-auth";
 
 function formatDateTime(dateString?: string) {
   if (!dateString) return "N/A";
@@ -148,6 +149,8 @@ function CollapsibleSection({
 export default function CustomerDetailPage() {
   const { id } = useParams() as { id: string };
   const router = useRouter();
+  const { canWrite } = useAuth();
+  const isWritable = canWrite("/customers");
 
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -415,9 +418,11 @@ export default function CustomerDetailPage() {
           </p>
         </div>
         <div className="ml-auto flex items-center gap-3">
-          <Button onClick={handleUpdateCustomer} disabled={isUpdatingCustomer}>
-            {isUpdatingCustomer ? "Updating..." : "Update"}
-          </Button>
+          {isWritable && (
+            <Button onClick={handleUpdateCustomer} disabled={isUpdatingCustomer}>
+              {isUpdatingCustomer ? "Updating..." : "Update"}
+            </Button>
+          )}
           <Badge colorScheme={customerForm.active ? "success" : "danger"}>
             {customerForm.active ? "Active" : "Inactive"}
           </Badge>
@@ -445,9 +450,10 @@ export default function CustomerDetailPage() {
                   type="radio"
                   name="customerStatus"
                   value="Active"
+                  disabled={!isWritable}
                   checked={customerForm.active === true}
                   onChange={() => setCustomerForm((p) => ({ ...p, active: true }))}
-                  className="h-4 w-4 accent-primary"
+                  className="h-4 w-4 accent-primary disabled:cursor-not-allowed"
                 />
                 <span>Active</span>
               </label>
@@ -456,9 +462,10 @@ export default function CustomerDetailPage() {
                   type="radio"
                   name="customerStatus"
                   value="Inactive"
+                  disabled={!isWritable}
                   checked={customerForm.active === false}
                   onChange={() => setCustomerForm((p) => ({ ...p, active: false }))}
-                  className="h-4 w-4 accent-primary"
+                  className="h-4 w-4 accent-primary disabled:cursor-not-allowed"
                 />
                 <span>Inactive</span>
               </label>
@@ -506,6 +513,7 @@ export default function CustomerDetailPage() {
             <div className="sm:col-span-2">
               <Input
                 value={customerForm.firstName}
+                disabled={!isWritable}
                 onChange={(e) => setCustomerForm((p) => ({ ...p, firstName: e.target.value }))}
               />
             </div>
@@ -518,6 +526,7 @@ export default function CustomerDetailPage() {
             <div className="sm:col-span-2">
               <Input
                 value={customerForm.lastName}
+                disabled={!isWritable}
                 onChange={(e) => setCustomerForm((p) => ({ ...p, lastName: e.target.value }))}
               />
             </div>
@@ -530,6 +539,7 @@ export default function CustomerDetailPage() {
             <div className="sm:col-span-2">
               <Input
                 value={customerForm.mobileNumber}
+                disabled={!isWritable}
                 onChange={(e) => setCustomerForm((p) => ({ ...p, mobileNumber: e.target.value }))}
               />
             </div>
@@ -538,10 +548,12 @@ export default function CustomerDetailPage() {
         <CollapsibleSection title={`Addresses (${addresses.length})`}>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-subtle-text">{addresses.length ? "" : "No addresses found."}</p>
-            <Button onClick={openNewAddressDialog}>
-              <Icon path={mdi.mdiPlus} className="mr-2 h-4 w-4" />
-              Create New Address
-            </Button>
+            {isWritable && (
+              <Button onClick={openNewAddressDialog}>
+                <Icon path={mdi.mdiPlus} className="mr-2 h-4 w-4" />
+                Create New Address
+              </Button>
+            )}
           </div>
 
           {addresses.length ? (
@@ -560,21 +572,23 @@ export default function CustomerDetailPage() {
                       <p className="pt-2 text-sm font-medium text-body-text">{addr.AddressName || "Home Address"}</p>
                       <p className="font-mono text-[11px] text-subtle-text">{addr.ID}</p>
                     </div>
-                    <div className="flex shrink-0 items-center gap-2">
-                      <Button variant="outline" size="sm" onClick={() => openEditAddressDialog(addr)}>
-                        <Icon path={mdi.mdiPencil} className="mr-2 h-4 w-4" />
-                        Edit
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        colorScheme="danger"
-                        onClick={() => handleDeleteAddress(String(addr.ID))}
-                      >
-                        <Icon path={mdi.mdiTrashCanOutline} className="mr-2 h-4 w-4" />
-                        Delete
-                      </Button>
-                    </div>
+                    {isWritable && (
+                      <div className="flex shrink-0 items-center gap-2">
+                        <Button variant="outline" size="sm" onClick={() => openEditAddressDialog(addr)}>
+                          <Icon path={mdi.mdiPencil} className="mr-2 h-4 w-4" />
+                          Edit
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          colorScheme="danger"
+                          onClick={() => handleDeleteAddress(String(addr.ID))}
+                        >
+                          <Icon path={mdi.mdiTrashCanOutline} className="mr-2 h-4 w-4" />
+                          Delete
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}

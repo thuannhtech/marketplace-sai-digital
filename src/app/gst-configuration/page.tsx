@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Icon } from "@/lib/icon";
 import { fetchGstConfiguration, updateGstConfigurationInGraph } from "@/src/lib/marketplace-client";
 import { useMarketplace } from "@/src/providers/MarketplaceProvider";
+import { useAuth } from "@/src/hooks/use-auth";
 
 function parseGstValue(value: string) {
   const numericValue = Number(value);
@@ -23,6 +24,8 @@ function parseGstValue(value: string) {
 
 export default function GstConfigurationPage() {
   const { client, error: marketplaceError, isInitialized, isLoading } = useMarketplace();
+  const { canWrite } = useAuth();
+  const isWritable = canWrite("/gst-configuration");
   const [gstValue, setGstValue] = useState(0);
   const [isPageLoading, setIsPageLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -65,6 +68,11 @@ export default function GstConfigurationPage() {
   }, [client, isInitialized]);
 
   async function handleUpdate() {
+    if (!isWritable) {
+      setError("You do not have permission to update GST configuration.");
+      return;
+    }
+
     if (!client) {
       setError("Marketplace client is not ready.");
       return;
@@ -129,22 +137,24 @@ export default function GstConfigurationPage() {
               step="0.01"
               value={gstValue}
               onChange={(event) => setGstValue(parseGstValue(event.target.value))}
-              disabled={isLoading || isPageLoading || isSaving || !client}
+              disabled={!isWritable || isLoading || isPageLoading || isSaving || !client}
             />
             <p className="text-xs text-subtle-text">Enter a value from 0 to 100.</p>
           </div>
 
           <div className="flex items-center justify-end">
-            <Button onClick={() => void handleUpdate()} disabled={isLoading || isPageLoading || isSaving || !client}>
-              {isSaving ? (
-                <>
-                  <Icon path={mdi.mdiLoading} className="mr-2 h-4 w-4 animate-spin" />
-                  Updating...
-                </>
-              ) : (
-                "Update"
-              )}
-            </Button>
+            {isWritable && (
+              <Button onClick={() => void handleUpdate()} disabled={isLoading || isPageLoading || isSaving || !client}>
+                {isSaving ? (
+                  <>
+                    <Icon path={mdi.mdiLoading} className="mr-2 h-4 w-4 animate-spin" />
+                    Updating...
+                  </>
+                ) : (
+                  "Update"
+                )}
+              </Button>
+            )}
           </div>
         </CardContent>
       </Card>
