@@ -1,0 +1,170 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { saveSubmission, getAllSubmissions, FormSubmission } from '@/src/lib/forms/storage';
+
+export const dynamic = 'force-dynamic';
+
+// Secret API Key validation (matches what user enters in Sitecore AI Form Webhook)
+const VALID_API_KEY = process.env.SITECORE_FORMS_API_KEY || 'sai_sec_forms_2026_demo_key';
+const EXPECTED_HEADER_NAME = (process.env.SITECORE_FORMS_HEADER_NAME || 'x-api-key').toLowerCase();
+
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': '*',
+};
+
+/**
+ * Handle CORS Preflight request from Sitecore Cloud UI (app.sitecorecloud.io)
+ */
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 200,
+    headers: CORS_HEADERS,
+  });
+}
+
+/**
+ * POST /api/forms/savedata
+ * Webhook endpoint for Sitecore AI / XM Cloud Forms to send & save submissions
+ */
+export async function POST(req: NextRequest) {
+  try {
+    // 1. Verify API Key
+    const providedApiKey =
+      req.headers.get(EXPECTED_HEADER_NAME) ||
+      req.headers.get('x-api-key') ||
+      req.headers.get('api-key') ||
+      req.headers.get('apikey') ||
+      req.headers.get('x-custom-header') ||
+      req.headers.get('authorization')?.replace(/bearer\s+/i, '');
+
+    if (!providedApiKey || providedApiKey !== VALID_API_KEY) {
+      console.warn(`[savedata] Unauthorized attempt. Received key: "${providedApiKey || 'NONE'}", expected: "${VALID_API_KEY}"`);
+      return NextResponse.json(
+        {
+          isSuccessful: false,
+          error: `Unauthorized: Missing or invalid API Key. Please provide Header '${EXPECTED_HEADER_NAME}' with the configured API Key.`,
+        },
+        {
+          status: 401,
+          headers: CORS_HEADERS,
+        }
+      );
+    }
+
+    // 2. Parse Body Payload
+    const rawBody = await req.json().catch(() => ({}));
+
+    // 3. Extract Form ID & Name dynamically from: Query Params > Headers > Body Payload
+    const { searchParams } = new URL(req.url);
+
+    const detectedFormId =
+      searchParams.get('formId') ||
+      searchParams.get('formid') ||
+      searchParams.get('form_id') ||
+      searchParams.get('id') ||
+      req.headers.get('x-formid') ||
+      req.headers.get('x-form-id') ||
+      req.headers.get('formid') ||
+      req.headers.get('x-sitecore-formid') ||
+      rawBody._formId ||
+      rawBody.formId ||
+      rawBody.FormId ||
+      rawBody.form_id ||
+      'sitecore-ai-form';
+
+    const detectedFormName =
+      searchParams.get('formName') ||
+      searchParams.get('formname') ||
+      searchParams.get('form_name') ||
+      req.headers.get('x-formname') ||
+      req.headers.get('x-form-name') ||
+      req.headers.get('formname') ||
+      rawBody._formName ||
+      rawBody.formName ||
+      rawBody.FormName ||
+      rawBody.form_name ||
+      (detectedFormId !== 'sitecore-ai-form' ? `Form ${detectedFormId.substring(0, 12)}...` : 'Sitecore AI Form');
+
+    const dateHeader = req.headers.get('date');
+    const userAgent = req.headers.get('user-agent') || 'Sitecore Webhook Dispatcher';
+    const referer = req.headers.get('referer') || rawBody.domain || req.headers.get('origin') || 'app.sitecorecloud.io';
+    const forwardedFor = req.headers.get('x-forwarded-for') || req.headers.get('remote-addr') || '127.0.0.1';
+
+    // 4. Deduplication guard: ignore exact duplicate webhook submissions within 5 seconds
+    const existingList = getAllSubmissions();
+    const isDuplicate = existingList.some((item) => {
+      if (item.formId !== detectedFormId) return false;
+      const timeDiff = Math.abs(Date.now() - new Date(item.submittedAt).getTime());
+      if (timeDiff > 5000) return false;
+      return JSON.stringify(item.data) === JSON.stringify(rawBody);
+    });
+
+    if (isDuplicate) {
+      return NextResponse.json(
+        {
+          isSuccessful: true,
+          message: 'Duplicate submission detected within 5 seconds; deduplicated.',
+          receivedData: {
+            formName: detectedFormName,
+            formId: detectedFormId,
+            fieldsCount: Object.keys(rawBody).length,
+          },
+        },
+        {
+          status: 200,
+          headers: CORS_HEADERS,
+        }
+      );
+    }
+
+    // 5. Save submission into storage
+    const newSubmission: FormSubmission = {
+      id: `sub-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      formId: detectedFormId,
+      formName: detectedFormName,
+      submittedAt: dateHeader && !isNaN(Date.parse(dateHeader)) ? new Date(dateHeader).toISOString() : new Date().toISOString(),
+      pageUrl: referer,
+      data: rawBody,
+      metadata: {
+        userAgent,
+        ip: forwardedFor,
+        domain: rawBody.domain || referer,
+        apiKeyUsed: providedApiKey ? `${providedApiKey.substring(0, 7)}...` : undefined,
+        source: 'Sitecore AI Cloud Webhook (API Key Validated)',
+        status: 'new',
+      },
+    };
+
+    saveSubmission(newSubmission);
+
+    return NextResponse.json(
+      {
+        isSuccessful: true,
+        message: 'Submission successfully received and stored.',
+        submissionId: newSubmission.id,
+        receivedData: {
+          formName: detectedFormName,
+          formId: detectedFormId,
+          fieldsCount: Object.keys(rawBody).length,
+        },
+      },
+      {
+        status: 200,
+        headers: CORS_HEADERS,
+      }
+    );
+  } catch (error: any) {
+    console.error('Error in /api/forms/savedata:', error);
+    return NextResponse.json(
+      {
+        isSuccessful: false,
+        error: error.message || 'Internal Server Error while saving submission',
+      },
+      {
+        status: 400,
+        headers: CORS_HEADERS,
+      }
+    );
+  }
+}

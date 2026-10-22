@@ -1,0 +1,17 @@
+
+> xmcloud-extension-starter@1.0.0 dev
+> next dev
+
+   ▲ Next.js 15.5.19
+   - Local:        http://localhost:3000
+   - Network:      http://10.20.32.75:3000
+   - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Ready in 2.5s
+ ○ Compiling /_not-found ...
+ ✓ Compiled /_not-found in 4.1s (895 modules)
+ GET / 404 in 5400ms
+ ○ Compiling /report ...
+ ✓ Compiled /report in 1388ms (892 modules)
+ GET /report 200 in 2025ms
