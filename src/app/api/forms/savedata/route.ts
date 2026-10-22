@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { saveSubmission, getAllSubmissions, FormSubmission } from '@/src/lib/forms/storage';
+import {
+  saveSubmission,
+  getAllSubmissions,
+  FormSubmission,
+  getSubmissionFingerprint,
+} from '@/src/lib/forms/storage';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,6 +17,10 @@ const CORS_HEADERS = {
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Access-Control-Allow-Headers': '*',
 };
+
+// In-memory fast cache to catch duplicate requests fired within milliseconds of each other
+const recentFingerprints = new Map<string, number>();
+const DEDUPLICATION_WINDOW_MS = 30000; // 30 seconds
 
 /**
  * Handle CORS Preflight request from Sitecore Cloud UI (app.sitecorecloud.io)
@@ -39,7 +48,9 @@ export async function POST(req: NextRequest) {
       req.headers.get('authorization')?.replace(/bearer\s+/i, '');
 
     if (!providedApiKey || providedApiKey !== VALID_API_KEY) {
-      console.warn(`[savedata] Unauthorized attempt. Received key: "${providedApiKey || 'NONE'}", expected: "${VALID_API_KEY}"`);
+      console.warn(
+        `[savedata] Unauthorized attempt. Received key: "${providedApiKey || 'NONE'}", expected: "${VALID_API_KEY}"`
+      );
       return NextResponse.json(
         {
           isSuccessful: false,
@@ -52,21 +63,23 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 2. Parse Body Payload
+    // 2. Parse incoming payload
     const rawBody = await req.json().catch(() => ({}));
 
-    // 3. Extract Form ID & Name dynamically from: Query Params > Headers > Body Payload
-    const { searchParams } = new URL(req.url);
+    // Explicitly delete recaptcha tokens so they are never stored
+    delete rawBody['g-recaptcha-response'];
+    delete rawBody['recaptcha-response'];
+    delete rawBody['grecaptcha'];
+    delete rawBody['__RequestVerificationToken'];
 
+    // 3. Extract Form ID and Name dynamically
+    const { searchParams } = new URL(req.url);
     const detectedFormId =
       searchParams.get('formId') ||
       searchParams.get('formid') ||
-      searchParams.get('form_id') ||
-      searchParams.get('id') ||
-      req.headers.get('x-formid') ||
       req.headers.get('x-form-id') ||
+      req.headers.get('x-formid') ||
       req.headers.get('formid') ||
-      req.headers.get('x-sitecore-formid') ||
       rawBody._formId ||
       rawBody.formId ||
       rawBody.FormId ||
@@ -76,7 +89,6 @@ export async function POST(req: NextRequest) {
     const detectedFormName =
       searchParams.get('formName') ||
       searchParams.get('formname') ||
-      searchParams.get('form_name') ||
       req.headers.get('x-formname') ||
       req.headers.get('x-form-name') ||
       req.headers.get('formname') ||
@@ -84,27 +96,31 @@ export async function POST(req: NextRequest) {
       rawBody.formName ||
       rawBody.FormName ||
       rawBody.form_name ||
-      (detectedFormId !== 'sitecore-ai-form' ? `Form ${detectedFormId.substring(0, 12)}...` : 'Sitecore AI Form');
+      (detectedFormId !== 'sitecore-ai-form'
+        ? `Form ${detectedFormId.substring(0, 12)}...`
+        : 'Sitecore AI Form');
 
     const dateHeader = req.headers.get('date');
     const userAgent = req.headers.get('user-agent') || 'Sitecore Webhook Dispatcher';
-    const referer = req.headers.get('referer') || rawBody.domain || req.headers.get('origin') || 'app.sitecorecloud.io';
-    const forwardedFor = req.headers.get('x-forwarded-for') || req.headers.get('remote-addr') || '127.0.0.1';
+    const referer =
+      req.headers.get('referer') ||
+      rawBody.domain ||
+      req.headers.get('origin') ||
+      'app.sitecorecloud.io';
+    const forwardedFor =
+      req.headers.get('x-forwarded-for') || req.headers.get('remote-addr') || '127.0.0.1';
 
-    // 4. Deduplication guard: ignore exact duplicate webhook submissions within 5 seconds
-    const existingList = await getAllSubmissions();
-    const isDuplicate = existingList.some((item) => {
-      if (item.formId !== detectedFormId) return false;
-      const timeDiff = Math.abs(Date.now() - new Date(item.submittedAt).getTime());
-      if (timeDiff > 5000) return false;
-      return JSON.stringify(item.data) === JSON.stringify(rawBody);
-    });
+    // 4. In-Memory Fast Deduplication Guard (catches sub-second duplicate requests from dual webhooks or retries)
+    const fingerprint = getSubmissionFingerprint(detectedFormId, rawBody);
+    const now = Date.now();
+    const lastSeen = recentFingerprints.get(fingerprint);
 
-    if (isDuplicate) {
+    if (lastSeen && now - lastSeen < DEDUPLICATION_WINDOW_MS) {
+      console.log(`[savedata] Fast in-memory deduplication triggered for: ${fingerprint}`);
       return NextResponse.json(
         {
           isSuccessful: true,
-          message: 'Duplicate submission detected within 5 seconds; deduplicated.',
+          message: 'Duplicate submission detected; deduplicated.',
           receivedData: {
             formName: detectedFormName,
             formId: detectedFormId,
@@ -117,13 +133,24 @@ export async function POST(req: NextRequest) {
         }
       );
     }
+    recentFingerprints.set(fingerprint, now);
 
-    // 5. Save submission into storage
+    // Garbage collection of old fingerprints
+    if (recentFingerprints.size > 200) {
+      for (const [k, v] of recentFingerprints.entries()) {
+        if (now - v > DEDUPLICATION_WINDOW_MS) recentFingerprints.delete(k);
+      }
+    }
+
+    // 5. Save submission into storage (storage.ts also executes secondary deduplication against persisted records)
     const newSubmission: FormSubmission = {
       id: `sub-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       formId: detectedFormId,
       formName: detectedFormName,
-      submittedAt: dateHeader && !isNaN(Date.parse(dateHeader)) ? new Date(dateHeader).toISOString() : new Date().toISOString(),
+      submittedAt:
+        dateHeader && !isNaN(Date.parse(dateHeader))
+          ? new Date(dateHeader).toISOString()
+          : new Date().toISOString(),
       pageUrl: referer,
       data: rawBody,
       metadata: {
@@ -159,10 +186,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         isSuccessful: false,
-        error: error.message || 'Internal Server Error while saving submission',
+        error: error.message || 'Internal server error while processing webhook data',
       },
       {
-        status: 400,
+        status: 500,
         headers: CORS_HEADERS,
       }
     );

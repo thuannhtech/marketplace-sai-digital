@@ -43,6 +43,83 @@ const BUNDLED_FILE = path.resolve(process.cwd(), '.brain', 'form-submissions.jso
 let memoryCache: FormSubmission[] = [];
 
 /**
+ * Generate a deterministic fingerprint for deduplication.
+ * Compares form ID and primary data fields (ignoring timestamps and captcha tokens).
+ */
+export function getSubmissionFingerprint(formId: string, data: Record<string, any>): string {
+  const normFid = (formId || '').toLowerCase().trim();
+  const email = (data.email || data.Email || '').toLowerCase().trim();
+  const phone = (data.phone || data.Phone || '').replace(/[^0-9]/g, '');
+  const name = (data['Full name'] || data.FullName || data.name || data.Name || '').toLowerCase().trim();
+  const specialrequest = (
+    data.specialrequest ||
+    data.SpecialRequest ||
+    data.message ||
+    data.comment ||
+    ''
+  )
+    .toLowerCase()
+    .trim();
+
+  if (email || phone || name) {
+    return `${normFid}::${email}::${phone}::${name}::${specialrequest}`;
+  }
+
+  // Fallback: sorted keys excluding recaptcha/verification tokens
+  const cleanData: Record<string, any> = {};
+  for (const k of Object.keys(data).sort()) {
+    if (k.toLowerCase().includes('recaptcha') || k.startsWith('__')) continue;
+    cleanData[k] = data[k];
+  }
+  return `${normFid}::${JSON.stringify(cleanData)}`;
+}
+
+/**
+ * Strips unwanted tokens (like g-recaptcha-response) from submission data.
+ */
+function cleanSubmissionData(data: Record<string, any>): Record<string, any> {
+  const cleaned = { ...data };
+  delete cleaned['g-recaptcha-response'];
+  delete cleaned['recaptcha-response'];
+  delete cleaned['grecaptcha'];
+  delete cleaned['__RequestVerificationToken'];
+  return cleaned;
+}
+
+/**
+ * Deduplicate a list of submissions and remove recaptcha tokens.
+ */
+function deduplicateSubmissions(list: FormSubmission[]): FormSubmission[] {
+  const seenFingerprints = new Map<string, number>();
+  const result: FormSubmission[] = [];
+
+  for (const item of list) {
+    if (item.data) {
+      item.data = cleanSubmissionData(item.data);
+    }
+
+    const fp = getSubmissionFingerprint(item.formId || '', item.data || {});
+    const itemTime = new Date(item.submittedAt).getTime();
+
+    // Check if seen within 60-second window
+    if (seenFingerprints.has(fp)) {
+      const prevTime = seenFingerprints.get(fp)!;
+      if (Math.abs(itemTime - prevTime) < 60000) {
+        // Duplicate submission, skip
+        continue;
+      }
+    }
+
+    seenFingerprints.set(fp, itemTime);
+    result.push(item);
+  }
+
+  return result.sort(
+    (a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime()
+  );
+}
+
+/**
  * Generate SharedKey HMAC-SHA256 authorization headers for Azure Blob Storage REST API.
  * Uses native Node.js crypto and fetch (zero external npm dependencies).
  */
@@ -124,10 +201,9 @@ async function fetchFromAzureBlob(): Promise<FormSubmission[] | null> {
     if (res.ok) {
       const data = await res.json();
       if (Array.isArray(data)) {
-        return data;
+        return deduplicateSubmissions(data);
       }
     } else if (res.status === 404) {
-      // Blob does not exist yet
       return [];
     } else {
       console.warn(`[Azure Blob] GET returned ${res.status}:`, await res.text());
@@ -143,7 +219,8 @@ async function fetchFromAzureBlob(): Promise<FormSubmission[] | null> {
  */
 async function saveToAzureBlob(submissions: FormSubmission[]): Promise<boolean> {
   try {
-    const jsonStr = JSON.stringify(submissions, null, 2);
+    const cleaned = deduplicateSubmissions(submissions);
+    const jsonStr = JSON.stringify(cleaned, null, 2);
     const buffer = Buffer.from(jsonStr, 'utf8');
     const headers = {
       'Content-Type': 'application/json; charset=utf-8',
@@ -177,20 +254,20 @@ function readLocalFallback(): FormSubmission[] {
       const raw = fs.readFileSync(LOCAL_STORAGE_FILE, 'utf-8');
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed;
+        return deduplicateSubmissions(parsed);
       }
     }
     if (fs.existsSync(BUNDLED_FILE)) {
       const raw = fs.readFileSync(BUNDLED_FILE, 'utf-8');
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed;
+        return deduplicateSubmissions(parsed);
       }
     }
   } catch (err) {
     console.warn('[Storage] readLocalFallback error:', err);
   }
-  return memoryCache;
+  return deduplicateSubmissions(memoryCache);
 }
 
 /**
@@ -201,7 +278,8 @@ function writeLocalFallback(submissions: FormSubmission[]): void {
     if (!fs.existsSync(LOCAL_STORAGE_DIR)) {
       fs.mkdirSync(LOCAL_STORAGE_DIR, { recursive: true });
     }
-    fs.writeFileSync(LOCAL_STORAGE_FILE, JSON.stringify(submissions, null, 2), 'utf-8');
+    const cleaned = deduplicateSubmissions(submissions);
+    fs.writeFileSync(LOCAL_STORAGE_FILE, JSON.stringify(cleaned, null, 2), 'utf-8');
   } catch (err) {
     console.warn('[Storage] writeLocalFallback error:', err);
   }
@@ -229,8 +307,34 @@ export async function getAllSubmissions(): Promise<FormSubmission[]> {
  * Save a new or updated submission into Azure Blob Storage.
  */
 export async function saveSubmission(submission: FormSubmission): Promise<FormSubmission> {
+  // Clean recaptcha tokens from incoming submission
+  if (submission.data) {
+    submission.data = cleanSubmissionData(submission.data);
+  }
+
   const current = await getAllSubmissions();
-  const updated = [submission, ...current.filter((item) => item.id !== submission.id)];
+
+  // Deduplication check: verify if identical submission exists within 60s
+  const subFp = getSubmissionFingerprint(submission.formId || '', submission.data || {});
+  const subTime = new Date(submission.submittedAt).getTime();
+
+  const alreadyExists = current.some((item) => {
+    if (item.id === submission.id) return true;
+    const itemFp = getSubmissionFingerprint(item.formId || '', item.data || {});
+    if (itemFp !== subFp) return false;
+    const itemTime = new Date(item.submittedAt).getTime();
+    return Math.abs(subTime - itemTime) < 60000;
+  });
+
+  if (alreadyExists) {
+    console.log(`[Storage] Duplicate submission suppressed for fingerprint: ${subFp}`);
+    return submission;
+  }
+
+  const updated = deduplicateSubmissions([
+    submission,
+    ...current.filter((item) => item.id !== submission.id),
+  ]);
   memoryCache = updated;
 
   // Persist to Azure Blob Storage
