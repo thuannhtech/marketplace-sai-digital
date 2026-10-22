@@ -138,23 +138,28 @@ export async function getAdminUsersAction(): Promise<{
 
     const usersWithRoles: AdminUserItem[] = await Promise.all(
       rawUsers.map(async (u) => {
-        const userAssignment = assignments.find((a) => a.UserID === u.ID);
+        const userAssignments = assignments.filter((a) => a.UserID === u.ID);
         let userRoles: string[] = [];
-        let profileId = userAssignment?.SecurityProfileID;
+        const profileId = userAssignments[0]?.SecurityProfileID;
 
-        if (profileId) {
-          if (profilesCache.has(profileId)) {
-            userRoles = profilesCache.get(profileId)!;
-          } else {
-            try {
-              const profile = await SecurityProfiles.Get(profileId);
-              userRoles = profile.Roles || [];
-              profilesCache.set(profileId, userRoles);
-            } catch {
-              userRoles = [];
+        for (const ua of userAssignments) {
+          const pId = ua.SecurityProfileID;
+          if (pId) {
+            if (profilesCache.has(pId)) {
+              userRoles.push(...(profilesCache.get(pId) || []));
+            } else {
+              try {
+                const profile = await SecurityProfiles.Get(pId);
+                const pRoles = profile.Roles || [];
+                profilesCache.set(pId, pRoles);
+                userRoles.push(...pRoles);
+              } catch {
+                userRoles = [];
+              }
             }
           }
         }
+        userRoles = Array.from(new Set(userRoles));
 
         // Merge roles from Security Profile with xp.Roles
         const xpRoles: string[] = Array.isArray(u.xp?.Roles) ? u.xp.Roles : [];
@@ -210,13 +215,14 @@ export async function createAdminUserAction(payload: CreateAdminUserPayload): Pr
       return { success: false, error: "Password is required for creating a new Admin User." };
     }
 
-    // 1. Resolve custom xp.Roles from payload.xp?.Roles or derived from selected presets / roles
-    let xpRoles: string[] = Array.isArray(payload.xp?.Roles) ? [...payload.xp!.Roles!] : [];
+    // 1. Resolve custom xp.Roles: strictly honor explicit preset xpRoles from payload.Roles
+    const presetXpRoles = new Set(ROLE_PRESETS.map((p) => p.xpRole));
+    let xpRoles: string[] = (Array.isArray(payload.xp?.Roles) ? payload.xp!.Roles! : []).filter(
+      (r) => !presetXpRoles.has(r)
+    );
     if (payload.Roles && payload.Roles.length > 0) {
       ROLE_PRESETS.forEach((preset) => {
         if (payload.Roles.includes(preset.xpRole)) {
-          xpRoles.push(preset.xpRole);
-        } else if (preset.roles.every((r) => payload.Roles.includes(r))) {
           xpRoles.push(preset.xpRole);
         }
       });
@@ -408,6 +414,7 @@ export async function assignRolesToAdminUserAction(
  */
 export async function updateAdminUserAction(payload: UpdateAdminUserPayload): Promise<{
   success: boolean;
+  xpRoles?: string[];
   error?: string;
 }> {
   try {
@@ -421,7 +428,7 @@ export async function updateAdminUserAction(payload: UpdateAdminUserPayload): Pr
     Configuration.Set({ baseApiUrl });
     Tokens.SetAccessToken(auth.token);
 
-    // 1. Resolve custom xp.Roles: keep non-preset roles and sync active preset roles from payload.Roles
+    // 1. Resolve custom xp.Roles: strictly honor explicit preset xpRoles from payload.Roles
     const presetXpRoles = new Set(ROLE_PRESETS.map((p) => p.xpRole));
     const nonPresetRoles = (Array.isArray(payload.xp?.Roles) ? payload.xp!.Roles! : []).filter(
       (r) => !presetXpRoles.has(r)
@@ -430,8 +437,6 @@ export async function updateAdminUserAction(payload: UpdateAdminUserPayload): Pr
     if (payload.Roles && payload.Roles.length > 0) {
       ROLE_PRESETS.forEach((preset) => {
         if (payload.Roles.includes(preset.xpRole)) {
-          activePresetRoles.push(preset.xpRole);
-        } else if (preset.roles.every((r) => payload.Roles.includes(r))) {
           activePresetRoles.push(preset.xpRole);
         }
       });
@@ -457,16 +462,37 @@ export async function updateAdminUserAction(payload: UpdateAdminUserPayload): Pr
 
     await AdminUsers.Patch(payload.ID, patchData);
 
-    // 3. Assign matching Security Profile in OrderCloud if available
-    for (const xpRole of xpRoles) {
-      try {
-        await SecurityProfiles.SaveAssignment({
-          SecurityProfileID: xpRole,
-          UserID: payload.ID,
-        });
-      } catch {
-        // Continue if profile ID does not exist as SecurityProfile in OrderCloud
+    // 3. Sync Security Profile assignments: delete obsolete assignments and add active ones
+    try {
+      const assignments = await SecurityProfiles.ListAssignments({ userID: payload.ID });
+      const currentAssignedIds = (assignments.Items || []).map((a) => a.SecurityProfileID);
+
+      // Delete obsolete preset assignments
+      for (const assignedId of currentAssignedIds) {
+        if (assignedId && presetXpRoles.has(assignedId) && !xpRoles.includes(assignedId)) {
+          try {
+            await SecurityProfiles.DeleteAssignment(assignedId, { userID: payload.ID });
+          } catch {
+            // Ignore if already deleted
+          }
+        }
       }
+
+      // Add assignments for active xpRoles
+      for (const xpRole of xpRoles) {
+        if (!currentAssignedIds.includes(xpRole)) {
+          try {
+            await SecurityProfiles.SaveAssignment({
+              SecurityProfileID: xpRole,
+              UserID: payload.ID,
+            });
+          } catch {
+            // Continue if profile ID does not exist as SecurityProfile in OrderCloud
+          }
+        }
+      }
+    } catch (spSyncErr) {
+      console.warn("Could not sync security profile assignments:", spSyncErr);
     }
 
     // 4. Save and assign custom Security Profile with updated standard roles
@@ -474,10 +500,10 @@ export async function updateAdminUserAction(payload: UpdateAdminUserPayload): Pr
       const standardRoles = (payload.Roles || []).filter((r) =>
         (ALL_ORDERCLOUD_ROLES as readonly string[]).includes(r) || r === "FullAccess"
       );
-      if (standardRoles.length > 0) {
-        const sanitizedUserId = payload.ID.toLowerCase().replace(/[^a-z0-9_-]/g, "_");
-        const profileId = `sp_admin_${sanitizedUserId}`;
+      const sanitizedUserId = payload.ID.toLowerCase().replace(/[^a-z0-9_-]/g, "_");
+      const profileId = `sp_admin_${sanitizedUserId}`;
 
+      if (standardRoles.length > 0) {
         await SecurityProfiles.Save(profileId, {
           ID: profileId,
           Name: `Role Profile for ${payload.Username}`,
@@ -488,12 +514,18 @@ export async function updateAdminUserAction(payload: UpdateAdminUserPayload): Pr
           SecurityProfileID: profileId,
           UserID: payload.ID,
         });
+      } else {
+        try {
+          await SecurityProfiles.DeleteAssignment(profileId, { userID: payload.ID });
+        } catch {
+          // Ignore
+        }
       }
     } catch (spErr) {
       console.warn("Could not save custom profile:", spErr);
     }
 
-    return { success: true };
+    return { success: true, xpRoles };
   } catch (err: any) {
     console.error("Update Admin User Error:", err);
     let msg = err.message || "Failed to update Admin User.";

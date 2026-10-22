@@ -37,6 +37,244 @@ import {
 } from "@/src/app/actions/admin-users";
 import { useAuth } from "@/src/hooks/use-auth";
 
+interface RolePresetsSectionProps {
+  roles: string[];
+  target: "create" | "update";
+  onTogglePreset: (preset: RolePreset, target: "create" | "update") => void;
+  onToggleCategoryAll: (categoryPresets: RolePreset[], target: "create" | "update") => void;
+  onQuickSelect: (filterType: "reader" | "admin" | "all" | "clear", target: "create" | "update") => void;
+  groupedPresets: Array<{
+    category: string;
+    icon: string;
+    presets: RolePreset[];
+  }>;
+}
+
+function RolePresetsSection({
+  roles,
+  target,
+  onTogglePreset,
+  onToggleCategoryAll,
+  onQuickSelect,
+  groupedPresets,
+}: RolePresetsSectionProps) {
+  const isSuper = roles.includes("SUPPER_ADMIN");
+  const activePresetsCount = ROLE_PRESETS.filter((p) => roles.includes(p.xpRole)).length;
+
+  return (
+    <div className="space-y-4 pt-2">
+      {/* Header and Quick Actions */}
+      <div className="flex flex-col gap-3 border-b border-border pb-3">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <div>
+            <h3 className="text-sm font-bold text-neutral-900 flex items-center gap-2">
+              <Icon path={mdi.mdiShieldCheckOutline} className="h-4 w-4 text-primary" />
+              Role Presets & Permissions (Multiple Check)
+            </h3>
+            <p className="text-xs text-subtle-text mt-0.5">
+              Check or uncheck individual permissions across modules. Multi-selection is fully supported.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-medium text-neutral-600 bg-neutral-100 px-2.5 py-1 rounded-full border border-neutral-200">
+              <strong className="text-primary font-semibold">{activePresetsCount}</strong> presets active ({roles.length} roles)
+            </span>
+          </div>
+        </div>
+
+        {/* Quick Toolbar */}
+        <div className="flex flex-wrap items-center justify-between gap-2 bg-neutral-50/80 p-2.5 px-3 rounded-lg border border-border">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-xs font-semibold text-neutral-700 mr-1 flex items-center gap-1">
+              <Icon path={mdi.mdiSelectAll} className="h-3.5 w-3.5 text-neutral-500" />
+              Quick Check:
+            </span>
+            <button
+              type="button"
+              onClick={() => onQuickSelect("reader", target)}
+              className="text-xs px-2.5 py-1 rounded-md border border-neutral-200 bg-white hover:bg-neutral-100 text-neutral-700 font-medium transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
+            >
+              <Icon path={mdi.mdiEyeOutline} className="h-3.5 w-3.5 text-sky-600" />
+              All Readers
+            </button>
+            <button
+              type="button"
+              onClick={() => onQuickSelect("admin", target)}
+              className="text-xs px-2.5 py-1 rounded-md border border-neutral-200 bg-white hover:bg-neutral-100 text-neutral-700 font-medium transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
+            >
+              <Icon path={mdi.mdiPencilOutline} className="h-3.5 w-3.5 text-blue-600" />
+              All Editors
+            </button>
+            <button
+              type="button"
+              onClick={() => onQuickSelect("all", target)}
+              className="text-xs px-2.5 py-1 rounded-md border border-neutral-200 bg-white hover:bg-neutral-100 text-neutral-700 font-medium transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
+            >
+              <Icon path={mdi.mdiCheckAll} className="h-3.5 w-3.5 text-emerald-600" />
+              Select All
+            </button>
+            <button
+              type="button"
+              onClick={() => onQuickSelect("clear", target)}
+              className="text-xs px-2.5 py-1 rounded-md border border-rose-200 bg-rose-50/50 hover:bg-rose-100/70 text-rose-700 font-medium transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
+            >
+              <Icon path={mdi.mdiCloseCircleOutline} className="h-3.5 w-3.5 text-rose-500" />
+              Clear All
+            </button>
+          </div>
+        </div>
+
+        {/* Super Admin Notice if active */}
+        {isSuper && (
+          <div className="flex items-center gap-2 p-2.5 px-3 rounded-lg bg-purple-50 border border-purple-200 text-purple-900 text-xs">
+            <Icon path={mdi.mdiCrownOutline} className="h-4 w-4 text-amber-500 shrink-0" />
+            <span>
+              <strong>Super Admin Mode:</strong> Has unrestricted FullAccess across all marketplace modules and administrative APIs.
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* Grid of Categories */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {groupedPresets.map((group) => {
+          const groupPresets = group.presets;
+          const activeInGroup = groupPresets.filter((p) => roles.includes(p.xpRole));
+          const isGroupAllActive = activeInGroup.length === groupPresets.length;
+
+          return (
+            <div
+              key={group.category}
+              className="p-4 rounded-xl border border-border bg-neutral-50/40 flex flex-col justify-between space-y-3 shadow-2xs"
+            >
+              {/* Category Header */}
+              <div className="flex items-center justify-between border-b border-border/70 pb-2.5">
+                <div className="flex items-center gap-2">
+                  <div className="h-7 w-7 rounded-md bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                    <Icon path={group.icon} className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <span className="font-bold text-xs uppercase tracking-wider text-neutral-800 block">
+                      {group.category}
+                    </span>
+                    <span className="text-[10px] text-neutral-500">
+                      {activeInGroup.length}/{groupPresets.length} checked
+                    </span>
+                  </div>
+                </div>
+
+                {groupPresets.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => onToggleCategoryAll(groupPresets, target)}
+                    className="text-[11px] font-medium text-primary hover:text-primary/80 transition-colors flex items-center gap-1 cursor-pointer px-2 py-1 rounded hover:bg-neutral-100"
+                  >
+                    <Icon path={isGroupAllActive ? mdi.mdiCheckAll : mdi.mdiSelectAll} className="h-3.5 w-3.5" />
+                    <span>{isGroupAllActive ? "Deselect" : "Select all"}</span>
+                  </button>
+                )}
+              </div>
+
+              {/* Multiple Check Items */}
+              <div className="space-y-2 flex-1">
+                {groupPresets.map((preset) => {
+                  const active = roles.includes(preset.xpRole);
+                  const isEditor = preset.type === "admin";
+                  const isApprover = preset.type === "approver";
+                  const isSuperItem = preset.id === "super_admin";
+
+                  return (
+                    <div
+                      key={preset.id}
+                      role="checkbox"
+                      aria-checked={active}
+                      tabIndex={0}
+                      onClick={() => onTogglePreset(preset, target)}
+                      onKeyDown={(e) => {
+                        if (e.key === " " || e.key === "Enter") {
+                          e.preventDefault();
+                          onTogglePreset(preset, target);
+                        }
+                      }}
+                      className={`w-full text-left p-3 rounded-lg border text-xs transition-all cursor-pointer select-none flex items-start gap-3 ${active
+                          ? isSuperItem
+                            ? "border-purple-400 bg-purple-50/70 ring-1 ring-purple-300"
+                            : isEditor
+                              ? "border-blue-400 bg-blue-50/60 ring-1 ring-blue-300"
+                              : isApprover
+                                ? "border-emerald-400 bg-emerald-50/60 ring-1 ring-emerald-300"
+                                : "border-sky-400 bg-sky-50/60 ring-1 ring-sky-300"
+                          : "border-border bg-white hover:border-neutral-300 hover:bg-neutral-50/60"
+                        }`}
+                    >
+                      {/* Checkbox Square */}
+                      <div
+                        className={`h-4.5 w-4.5 rounded-md flex items-center justify-center shrink-0 border transition-colors mt-0.5 ${active
+                            ? isSuperItem
+                              ? "bg-purple-600 border-purple-600 text-white shadow-xs"
+                              : isEditor
+                                ? "bg-blue-600 border-blue-600 text-white shadow-xs"
+                                : isApprover
+                                  ? "bg-emerald-600 border-emerald-600 text-white shadow-xs"
+                                  : "bg-sky-600 border-sky-600 text-white shadow-xs"
+                            : "border-neutral-300 bg-white"
+                          }`}
+                      >
+                        {active && <Icon path={mdi.mdiCheck} className="h-3 w-3 stroke-[2]" />}
+                      </div>
+
+                      {/* Content */}
+                      <div className="flex-1 min-w-0 space-y-1">
+                        <div className="flex items-center justify-between gap-1.5 flex-wrap">
+                          <span className="font-semibold text-neutral-900 truncate">
+                            {preset.name}
+                          </span>
+                          {isSuperItem && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-100 text-purple-800 border border-purple-200">
+                              <Icon path={mdi.mdiCrownOutline} className="h-3 w-3 text-amber-500" />
+                              Super Admin
+                            </span>
+                          )}
+                          {!isSuperItem && isEditor && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-100 text-blue-800 border border-blue-200">
+                              <Icon path={mdi.mdiPencilOutline} className="h-3 w-3 text-blue-600" />
+                              Editor
+                            </span>
+                          )}
+                          {!isSuperItem && isApprover && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                              <Icon path={mdi.mdiClipboardCheckOutline} className="h-3 w-3 text-emerald-600" />
+                              Approver
+                            </span>
+                          )}
+                          {!isSuperItem && !isEditor && !isApprover && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+                              <Icon path={mdi.mdiEyeOutline} className="h-3 w-3 text-sky-600" />
+                              Read Only
+                            </span>
+                          )}
+                        </div>
+
+                        <p className="text-[11px] text-neutral-500 line-clamp-2 leading-relaxed">
+                          {preset.description}
+                        </p>
+
+                        <div className="text-[10px] font-mono text-neutral-400 pt-0.5">
+                          {preset.roles.length} OrderCloud role{preset.roles.length !== 1 ? "s" : ""}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function AdminUsersPage() {
   const { isSuperAdmin, user: currentUser } = useAuth();
 
@@ -130,10 +368,19 @@ export default function AdminUsersPage() {
     setSelectedCategoryTab("All");
     setShowAdvancedRoles(false);
 
-    const mergedRoles = Array.from(new Set([
-      ...(u.Roles || []),
-      ...(u.xp?.Roles || []),
-    ]));
+    // Get preset xp roles from u.xp?.Roles, or extract from u.Roles if user has preset xpRoles
+    const userXpRoles = Array.isArray(u.xp?.Roles) && u.xp!.Roles!.length > 0
+      ? u.xp!.Roles!
+      : (u.Roles || []).filter((r) => ROLE_PRESETS.some((p) => p.xpRole === r));
+
+    let initialRoles: string[];
+    if (userXpRoles.length > 0) {
+      const activePresets = ROLE_PRESETS.filter((p) => userXpRoles.includes(p.xpRole));
+      const presetStandardRoles = activePresets.flatMap((p) => p.roles);
+      initialRoles = Array.from(new Set([...userXpRoles, ...presetStandardRoles]));
+    } else {
+      initialRoles = u.Roles || [];
+    }
 
     setUpdateForm({
       ID: u.ID,
@@ -143,8 +390,12 @@ export default function AdminUsersPage() {
       LastName: u.LastName || "",
       Email: u.Email || "",
       Active: u.Active,
-      Roles: mergedRoles,
-      xp: u.xp,
+      Roles: initialRoles,
+      xp: {
+        ...(u.xp || {}),
+        Country: u.xp?.Country || "SitecoreAI",
+        Roles: userXpRoles,
+      },
     });
     setIsUpdateOpen(true);
   };
@@ -170,11 +421,16 @@ export default function AdminUsersPage() {
     } else {
       const withoutSuper = currentRoles.filter((r) => r !== "SUPPER_ADMIN" && r !== "FullAccess");
 
+      // Extract only active preset xpRoles
+      const currentActiveXpRoles = ROLE_PRESETS.map((p) => p.xpRole).filter((xr) =>
+        withoutSuper.includes(xr)
+      );
+
       let updatedXpRoles: string[];
       if (isCurrentlyActive) {
-        updatedXpRoles = withoutSuper.filter((r) => r !== preset.xpRole);
+        updatedXpRoles = currentActiveXpRoles.filter((r) => r !== preset.xpRole);
       } else {
-        updatedXpRoles = [...withoutSuper, preset.xpRole];
+        updatedXpRoles = [...currentActiveXpRoles, preset.xpRole];
       }
 
       // Recompute all active standard roles from remaining active presets
@@ -205,22 +461,40 @@ export default function AdminUsersPage() {
     const allActive = categoryPresets.every((p) => isPresetActive(p, currentRoles));
     const categoryXpRoles = categoryPresets.map((p) => p.xpRole);
 
-    let nextXpRoles: string[];
-    if (allActive) {
-      nextXpRoles = currentRoles.filter((r) => !categoryXpRoles.includes(r));
-    } else {
-      nextXpRoles = Array.from(new Set([...currentRoles, ...categoryXpRoles]));
+    const isSuperCategory = categoryPresets.some((p) => p.id === "super_admin");
+    if (isSuperCategory) {
+      const nextRoles = allActive ? [] : ["SUPPER_ADMIN", "FullAccess"];
+      if (target === "create") {
+        setCreateForm((prev) => ({ ...prev, Roles: nextRoles }));
+      } else {
+        setUpdateForm((prev) => ({ ...prev, Roles: nextRoles }));
+      }
+      return;
     }
 
-    const withoutSuper = nextXpRoles.filter((r) => r !== "SUPPER_ADMIN" && r !== "FullAccess");
-    const activePresets = ROLE_PRESETS.filter((p) => withoutSuper.includes(p.xpRole));
+    const withoutSuper = currentRoles.filter((r) => r !== "SUPPER_ADMIN" && r !== "FullAccess");
+    const currentActiveXpRoles = ROLE_PRESETS.map((p) => p.xpRole).filter((xr) =>
+      withoutSuper.includes(xr)
+    );
+
+    let updatedXpRoles: string[];
+    if (allActive) {
+      updatedXpRoles = currentActiveXpRoles.filter((r) => !categoryXpRoles.includes(r));
+    } else {
+      updatedXpRoles = Array.from(new Set([...currentActiveXpRoles, ...categoryXpRoles]));
+    }
+
+    const activePresets = ROLE_PRESETS.filter((p) => updatedXpRoles.includes(p.xpRole));
     const combinedStandardRoles = activePresets.flatMap((p) => p.roles);
     const combinedXpRoles = activePresets.map((p) => p.xpRole);
 
-    const hasSuper = nextXpRoles.includes("SUPPER_ADMIN");
-    const nextRoles = hasSuper
-      ? ["SUPPER_ADMIN", "FullAccess"]
-      : Array.from(new Set([...combinedXpRoles, ...combinedStandardRoles]));
+    const knownPresetRoles = new Set([
+      ...ROLE_PRESETS.flatMap((p) => p.roles),
+      ...ROLE_PRESETS.map((p) => p.xpRole),
+    ]);
+    const customExistingRoles = withoutSuper.filter((r) => !knownPresetRoles.has(r));
+
+    const nextRoles = Array.from(new Set([...customExistingRoles, ...combinedXpRoles, ...combinedStandardRoles]));
 
     if (target === "create") {
       setCreateForm((prev) => ({ ...prev, Roles: nextRoles }));
@@ -230,7 +504,10 @@ export default function AdminUsersPage() {
   };
 
   // Quick select presets across all modules
-  const handleQuickSelectPresets = (filterType: "reader" | "admin" | "clear", target: "create" | "update") => {
+  const handleQuickSelectPresets = (
+    filterType: "reader" | "admin" | "all" | "clear",
+    target: "create" | "update"
+  ) => {
     if (filterType === "clear") {
       if (target === "create") {
         setCreateForm((prev) => ({ ...prev, Roles: [] }));
@@ -240,7 +517,11 @@ export default function AdminUsersPage() {
       return;
     }
 
-    const matchedPresets = ROLE_PRESETS.filter((p) => p.type === filterType && p.id !== "super_admin");
+    const matchedPresets =
+      filterType === "all"
+        ? ROLE_PRESETS.filter((p) => p.id !== "super_admin")
+        : ROLE_PRESETS.filter((p) => p.type === filterType && p.id !== "super_admin");
+
     const combinedXpRoles = matchedPresets.map((p) => p.xpRole);
     const combinedStandardRoles = matchedPresets.flatMap((p) => p.roles);
     const nextRoles = Array.from(new Set([...combinedXpRoles, ...combinedStandardRoles]));
@@ -308,7 +589,11 @@ export default function AdminUsersPage() {
       setSuccessMessage(`Admin User @${updateForm.Username} updated successfully!`);
       setTimeout(() => setSuccessMessage(""), 4000);
 
-      // Update local state
+      const updatedPresetXpRoles = ROLE_PRESETS.map((p) => p.xpRole).filter((xr) =>
+        updateForm.Roles.includes(xr)
+      );
+
+      // Optimistically update local state with new xp.Roles
       setUsers((prev) =>
         prev.map((u) =>
           u.ID === updateForm.ID
@@ -319,11 +604,17 @@ export default function AdminUsersPage() {
               Email: updateForm.Email,
               Active: updateForm.Active,
               Roles: updateForm.Roles,
+              xp: {
+                ...(u.xp || {}),
+                Country: u.xp?.Country || "SitecoreAI",
+                Roles: updatedPresetXpRoles,
+              },
             }
             : u
         )
       );
       setIsUpdateOpen(false);
+      await loadUsers();
     } catch (err: any) {
       setUpdateModalError(err.message || "An error occurred while updating user.");
     } finally {
@@ -780,95 +1071,15 @@ export default function AdminUsersPage() {
                 </div>
               </div>
 
-              {/* SECTION 2: PAGE-LEVEL ROLE PRESETS */}
-              <div className="space-y-4 pt-2">
-                <div className="flex items-center justify-between border-b border-border pb-2">
-                  <div>
-                    <h3 className="text-sm font-bold text-neutral-900 flex items-center gap-2">
-                      <Icon path={mdi.mdiShieldCheckOutline} className="h-4 w-4 text-primary" />
-                      Role Presets by Page & Module
-                    </h3>
-                    <p className="text-xs text-subtle-text mt-0.5">
-                      Toggle read-only or full editor permissions for each main section
-                    </p>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3.5">
-                  {groupedPresets.map((group) => (
-                    <div
-                      key={group.category}
-                      className="p-4 rounded-xl border border-border bg-neutral-50/50 flex flex-col justify-between space-y-3"
-                    >
-                      <div className="flex items-center gap-2 border-b border-border/60 pb-2">
-                        <Icon path={group.icon} className="h-4 w-4 text-primary shrink-0" />
-                        <span className="font-bold text-xs uppercase tracking-wider text-neutral-800">
-                          {group.category}
-                        </span>
-                      </div>
-
-                      <div className="space-y-2 flex-1">
-                        {group.presets.map((preset) => {
-                          const active = isPresetActive(preset, updateForm.Roles);
-                          const isEditor = preset.type === "admin";
-                          const isApprover = preset.type === "approver";
-                          const isSuper = preset.id === "super_admin";
-
-                          return (
-                            <button
-                              key={preset.id}
-                              type="button"
-                              onClick={() => handleTogglePreset(preset, "update")}
-                              className={`w-full text-left p-2.5 rounded-lg border text-xs transition-all cursor-pointer flex flex-col gap-1 ${active
-                                ? isSuper
-                                  ? "border-purple-500 bg-purple-50 text-purple-900 ring-2 ring-purple-200 font-semibold shadow-xs"
-                                  : isEditor
-                                    ? "border-primary bg-primary/10 text-primary ring-2 ring-primary/20 font-semibold shadow-xs"
-                                    : isApprover
-                                      ? "border-emerald-500 bg-emerald-50 text-emerald-900 ring-2 ring-emerald-200 font-semibold shadow-xs"
-                                      : "border-sky-500 bg-sky-50 text-sky-900 ring-2 ring-sky-200 font-semibold shadow-xs"
-                                : "border-border bg-white text-neutral-700 hover:border-neutral-300 hover:bg-neutral-50"
-                                }`}
-                            >
-                              <div className="flex items-center justify-between">
-                                <span className="font-semibold flex items-center gap-1.5 truncate">
-                                  {isSuper && (
-                                    <Icon path={mdi.mdiCrownOutline} className="h-3.5 w-3.5 text-amber-500" />
-                                  )}
-                                  {!isSuper && isEditor && (
-                                    <Icon path={mdi.mdiPencilOutline} className="h-3.5 w-3.5 text-primary" />
-                                  )}
-                                  {!isSuper && isApprover && (
-                                    <Icon path={mdi.mdiClipboardCheckOutline} className="h-3.5 w-3.5 text-emerald-600" />
-                                  )}
-                                  {!isSuper && !isEditor && !isApprover && (
-                                    <Icon path={mdi.mdiEyeOutline} className="h-3.5 w-3.5 text-sky-600" />
-                                  )}
-                                  <span className="truncate">{preset.name}</span>
-                                </span>
-                                <div
-                                  className={`h-4 w-4 rounded flex items-center justify-center shrink-0 border ${active
-                                    ? "bg-primary border-primary text-white"
-                                    : "border-neutral-300 bg-white"
-                                    }`}
-                                >
-                                  {active && <Icon path={mdi.mdiCheck} className="h-3 w-3" />}
-                                </div>
-                              </div>
-                              <span className="text-[10px] text-subtle-text line-clamp-2">
-                                {preset.description}
-                              </span>
-                              <span className="text-[10px] font-mono text-neutral-400 mt-0.5">
-                                {preset.roles.length} roles
-                              </span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              {/* SECTION 2: PAGE-LEVEL ROLE PRESETS (MULTIPLE CHECK) */}
+              <RolePresetsSection
+                roles={updateForm.Roles}
+                target="update"
+                onTogglePreset={handleTogglePreset}
+                onToggleCategoryAll={handleToggleCategoryAll}
+                onQuickSelect={handleQuickSelectPresets}
+                groupedPresets={groupedPresets}
+              />
 
 
             </div>
@@ -1113,98 +1324,15 @@ export default function AdminUsersPage() {
                 </div>
               </div>
 
-              {/* SECTION 2: PAGE-LEVEL ROLE PRESETS */}
-              <div className="space-y-4 pt-2">
-                <div className="flex items-center justify-between border-b border-border pb-2">
-                  <div>
-                    <h3 className="text-sm font-bold text-neutral-900 flex items-center gap-2">
-                      <Icon path={mdi.mdiShieldCheckOutline} className="h-4 w-4 text-primary" />
-                      Role Presets by Page & Module
-                    </h3>
-                    <p className="text-xs text-subtle-text mt-0.5">
-                      Toggle read-only or full editor permissions for each main section
-                    </p>
-                  </div>
-                  <span className="text-[11px] text-subtle-text font-mono">
-                    {createForm.Roles.length} roles selected
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3.5">
-                  {groupedPresets.map((group) => (
-                    <div
-                      key={group.category}
-                      className="p-4 rounded-xl border border-border bg-neutral-50/50 flex flex-col justify-between space-y-3"
-                    >
-                      <div className="flex items-center gap-2 border-b border-border/60 pb-2">
-                        <Icon path={group.icon} className="h-4 w-4 text-primary shrink-0" />
-                        <span className="font-bold text-xs uppercase tracking-wider text-neutral-800">
-                          {group.category}
-                        </span>
-                      </div>
-
-                      <div className="space-y-2 flex-1">
-                        {group.presets.map((preset) => {
-                          const active = isPresetActive(preset, createForm.Roles);
-                          const isEditor = preset.type === "admin";
-                          const isApprover = preset.type === "approver";
-                          const isSuper = preset.id === "super_admin";
-
-                          return (
-                            <button
-                              key={preset.id}
-                              type="button"
-                              onClick={() => handleTogglePreset(preset, "create")}
-                              className={`w-full text-left p-2.5 rounded-lg border text-xs transition-all cursor-pointer flex flex-col gap-1 ${active
-                                ? isSuper
-                                  ? "border-purple-500 bg-purple-50 text-purple-900 ring-2 ring-purple-200 font-semibold shadow-xs"
-                                  : isEditor
-                                    ? "border-primary bg-primary/10 text-primary ring-2 ring-primary/20 font-semibold shadow-xs"
-                                    : isApprover
-                                      ? "border-emerald-500 bg-emerald-50 text-emerald-900 ring-2 ring-emerald-200 font-semibold shadow-xs"
-                                      : "border-sky-500 bg-sky-50 text-sky-900 ring-2 ring-sky-200 font-semibold shadow-xs"
-                                : "border-border bg-white text-neutral-700 hover:border-neutral-300 hover:bg-neutral-50"
-                                }`}
-                            >
-                              <div className="flex items-center justify-between">
-                                <span className="font-semibold flex items-center gap-1.5 truncate">
-                                  {isSuper && (
-                                    <Icon path={mdi.mdiCrownOutline} className="h-3.5 w-3.5 text-amber-500" />
-                                  )}
-                                  {!isSuper && isEditor && (
-                                    <Icon path={mdi.mdiPencilOutline} className="h-3.5 w-3.5 text-primary" />
-                                  )}
-                                  {!isSuper && isApprover && (
-                                    <Icon path={mdi.mdiClipboardCheckOutline} className="h-3.5 w-3.5 text-emerald-600" />
-                                  )}
-                                  {!isSuper && !isEditor && !isApprover && (
-                                    <Icon path={mdi.mdiEyeOutline} className="h-3.5 w-3.5 text-sky-600" />
-                                  )}
-                                  <span className="truncate">{preset.name}</span>
-                                </span>
-                                <div
-                                  className={`h-4 w-4 rounded flex items-center justify-center shrink-0 border ${active
-                                    ? "bg-primary border-primary text-white"
-                                    : "border-neutral-300 bg-white"
-                                    }`}
-                                >
-                                  {active && <Icon path={mdi.mdiCheck} className="h-3 w-3" />}
-                                </div>
-                              </div>
-                              <span className="text-[10px] text-subtle-text line-clamp-2">
-                                {preset.description}
-                              </span>
-                              <span className="text-[10px] font-mono text-neutral-400 mt-0.5">
-                                {preset.roles.length} roles
-                              </span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              {/* SECTION 2: PAGE-LEVEL ROLE PRESETS (MULTIPLE CHECK) */}
+              <RolePresetsSection
+                roles={createForm.Roles}
+                target="create"
+                onTogglePreset={handleTogglePreset}
+                onToggleCategoryAll={handleToggleCategoryAll}
+                onQuickSelect={handleQuickSelectPresets}
+                groupedPresets={groupedPresets}
+              />
             </div>
 
             {/* Footer */}
