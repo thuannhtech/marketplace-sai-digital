@@ -73,6 +73,7 @@ export const siteNavigationGroups: SiteNavigationGroup[] = [
         title: "Product & Inventory Analytics",
         url: "/report",
         icon: mdi.mdiChartBoxOutline,
+        roles: ["ADMIN_CONTENTPRODUCT", "ADMIN_PRODUCT_READER"],
       },
     ]
   },

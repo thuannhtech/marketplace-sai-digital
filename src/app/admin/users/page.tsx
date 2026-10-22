@@ -658,15 +658,6 @@ export default function AdminUsersPage() {
                   </DialogDescription>
                 </div>
               </div>
-
-              <div className="flex items-center gap-3 sm:text-right">
-                <div className="flex flex-col items-end">
-                  <span className="text-xs text-subtle-text">Active Permissions:</span>
-                  <Badge className="bg-primary text-white font-mono text-xs px-2.5 py-0.5 mt-0.5">
-                    {updateForm.Roles.length} / {ALL_ORDERCLOUD_ROLES.length} roles
-                  </Badge>
-                </div>
-              </div>
             </div>
 
             {/* Active Presets Summary */}
@@ -947,22 +938,49 @@ export default function AdminUsersPage() {
 
       {/* MODAL: CREATE ADMIN USER */}
       <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-        <DialogContent className="w-[94vw] max-w-4xl p-0 overflow-hidden flex flex-col max-h-[92vh] bg-white rounded-xl shadow-2xl">
-          <DialogHeader className="p-6 pb-4 border-b border-border bg-neutral-50/60 shrink-0">
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary shrink-0">
-                <Icon path={mdi.mdiAccountPlusOutline} className="h-6 w-6" />
+        <DialogContent className="w-[96vw] max-w-6xl xl:max-w-7xl h-[88vh] max-h-[900px] flex flex-col p-0 overflow-hidden bg-white rounded-xl shadow-2xl">
+          {/* Header */}
+          <DialogHeader className="p-6 pb-4 border-b border-border shrink-0 bg-neutral-50/60">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary shrink-0">
+                  <Icon path={mdi.mdiAccountPlusOutline} className="h-6 w-6" />
+                </div>
+                <div>
+                  <DialogTitle className="text-xl font-bold flex items-center gap-2 text-neutral-900">
+                    Create New Admin User
+                  </DialogTitle>
+                  <DialogDescription className="text-xs text-subtle-text mt-0.5">
+                    Configure profile details, credentials, active status, and page permissions
+                  </DialogDescription>
+                </div>
               </div>
-              <div>
-                <DialogTitle className="text-xl font-bold text-neutral-900">
-                  Create New Admin User
-                </DialogTitle>
-              </div>
+            </div>
+
+            {/* Active Presets Summary */}
+            <div className="flex items-center gap-1.5 flex-wrap pt-3">
+              <span className="text-xs font-semibold text-neutral-600 mr-1">Active Presets:</span>
+              {getUserPresetNames(createForm.Roles).length > 0 ? (
+                getUserPresetNames(createForm.Roles).map((name) => (
+                  <Badge
+                    key={name}
+                    colorScheme={name.includes("Editor") ? "primary" : name === "Super Admin" ? "primary" : "neutral"}
+                    className="text-xs font-medium"
+                  >
+                    {name}
+                  </Badge>
+                ))
+              ) : (
+                <span className="text-xs text-subtle-text italic">
+                  {createForm.Roles.length > 0 ? "Custom permission combination" : "No permissions selected"}
+                </span>
+              )}
             </div>
           </DialogHeader>
 
+          {/* Body Form */}
           <form onSubmit={handleCreateUser} className="flex flex-col flex-1 overflow-hidden">
-            <div className="p-6 sm:p-8 space-y-6 overflow-y-auto flex-1 max-h-[calc(92vh-140px)]">
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
               {/* Modal Error Alert */}
               {createModalError && (
                 <div className="flex items-start gap-3 rounded-xl border border-rose-200 bg-rose-50 p-4 text-rose-900 text-xs shadow-xs animate-in fade-in">
@@ -991,10 +1009,11 @@ export default function AdminUsersPage() {
                 </div>
               )}
 
-              {/* Account Details */}
+              {/* SECTION 1: USER ACCOUNT INFORMATION & STATUS */}
               <div className="space-y-4">
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-neutral-500 border-b border-border pb-1.5">
-                  User Account Information
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-neutral-500 border-b border-border pb-1.5 flex items-center gap-1.5">
+                  <Icon path={mdi.mdiAccountOutline} className="h-4 w-4 text-primary" />
+                  Account Information & Status
                 </h3>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1119,100 +1138,133 @@ export default function AdminUsersPage() {
                 </div>
               </div>
 
-              {/* Page Role Presets */}
-              <div className="space-y-3 pt-2">
-                <div className="flex items-center justify-between border-b border-border pb-1.5">
-                  <h3 className="text-xs font-semibold uppercase tracking-wider text-neutral-500">
-                    Assign Page Permissions (Role Presets)
-                  </h3>
-                  <span className="text-[11px] text-subtle-text">
+              {/* SECTION 2: PAGE-LEVEL ROLE PRESETS */}
+              <div className="space-y-4 pt-2">
+                <div className="flex items-center justify-between border-b border-border pb-2">
+                  <div>
+                    <h3 className="text-sm font-bold text-neutral-900 flex items-center gap-2">
+                      <Icon path={mdi.mdiShieldCheckOutline} className="h-4 w-4 text-primary" />
+                      Role Presets by Page & Module
+                    </h3>
+                    <p className="text-xs text-subtle-text mt-0.5">
+                      Toggle read-only or full editor permissions for each main section
+                    </p>
+                  </div>
+                  <span className="text-[11px] text-subtle-text font-mono">
                     {createForm.Roles.length} roles selected
                   </span>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                  {ROLE_PRESETS.map((preset) => {
-                    const active = isPresetActive(preset, createForm.Roles);
-                    const isEditor = preset.type === "admin";
-                    const isApprover = preset.type === "approver";
-                    const isSuper = preset.id === "super_admin";
-
-                    return (
-                      <div
-                        key={preset.id}
-                        onClick={() => handleTogglePreset(preset, "create")}
-                        className={`p-3 rounded-lg border text-xs cursor-pointer select-none transition-all flex flex-col justify-between ${active
-                          ? isSuper
-                            ? "border-purple-500 bg-purple-50 text-purple-900 ring-2 ring-purple-200 shadow-xs"
-                            : isEditor
-                              ? "border-primary bg-primary/10 text-primary ring-2 ring-primary/20 shadow-xs"
-                              : isApprover
-                                ? "border-emerald-500 bg-emerald-50 text-emerald-900 ring-2 ring-emerald-200 shadow-xs"
-                                : "border-sky-500 bg-sky-50 text-sky-900 ring-2 ring-sky-200 shadow-xs"
-                          : "border-border hover:border-neutral-300 hover:bg-neutral-50 bg-white"
-                          }`}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <span className="font-semibold text-neutral-900 flex items-center gap-1.5 truncate">
-                            {isSuper && <Icon path={mdi.mdiCrownOutline} className="h-3.5 w-3.5 text-amber-500" />}
-                            {!isSuper && isEditor && (
-                              <Icon path={mdi.mdiPencilOutline} className="h-3.5 w-3.5 text-primary" />
-                            )}
-                            {!isSuper && isApprover && (
-                              <Icon path={mdi.mdiClipboardCheckOutline} className="h-3.5 w-3.5 text-emerald-600" />
-                            )}
-                            {!isSuper && !isEditor && !isApprover && (
-                              <Icon path={mdi.mdiEyeOutline} className="h-3.5 w-3.5 text-sky-600" />
-                            )}
-                            <span className="truncate">{preset.name}</span>
-                          </span>
-                          <div
-                            className={`h-4 w-4 rounded flex items-center justify-center shrink-0 border ${active ? "bg-primary border-primary text-white" : "border-neutral-300 bg-white"
-                              }`}
-                          >
-                            {active && <Icon path={mdi.mdiCheck} className="h-3 w-3" />}
-                          </div>
-                        </div>
-                        <p className="text-[11px] text-subtle-text mt-1 line-clamp-2">
-                          {preset.description}
-                        </p>
-                        <span className="text-[10px] text-neutral-400 font-mono mt-1">
-                          {preset.roles.length} roles
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3.5">
+                  {groupedPresets.map((group) => (
+                    <div
+                      key={group.category}
+                      className="p-4 rounded-xl border border-border bg-neutral-50/50 flex flex-col justify-between space-y-3"
+                    >
+                      <div className="flex items-center gap-2 border-b border-border/60 pb-2">
+                        <Icon path={group.icon} className="h-4 w-4 text-primary shrink-0" />
+                        <span className="font-bold text-xs uppercase tracking-wider text-neutral-800">
+                          {group.category}
                         </span>
                       </div>
-                    );
-                  })}
-                </div>
 
-                <p className="text-[11px] text-subtle-text mt-1">
-                  You can click multiple presets (e.g. Customer Editor + Order Read Only) or fine-tune permissions anytime via &ldquo;Update&rdquo;.
-                </p>
+                      <div className="space-y-2 flex-1">
+                        {group.presets.map((preset) => {
+                          const active = isPresetActive(preset, createForm.Roles);
+                          const isEditor = preset.type === "admin";
+                          const isApprover = preset.type === "approver";
+                          const isSuper = preset.id === "super_admin";
+
+                          return (
+                            <button
+                              key={preset.id}
+                              type="button"
+                              onClick={() => handleTogglePreset(preset, "create")}
+                              className={`w-full text-left p-2.5 rounded-lg border text-xs transition-all cursor-pointer flex flex-col gap-1 ${active
+                                ? isSuper
+                                  ? "border-purple-500 bg-purple-50 text-purple-900 ring-2 ring-purple-200 font-semibold shadow-xs"
+                                  : isEditor
+                                    ? "border-primary bg-primary/10 text-primary ring-2 ring-primary/20 font-semibold shadow-xs"
+                                    : isApprover
+                                      ? "border-emerald-500 bg-emerald-50 text-emerald-900 ring-2 ring-emerald-200 font-semibold shadow-xs"
+                                      : "border-sky-500 bg-sky-50 text-sky-900 ring-2 ring-sky-200 font-semibold shadow-xs"
+                                : "border-border bg-white text-neutral-700 hover:border-neutral-300 hover:bg-neutral-50"
+                                }`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <span className="font-semibold flex items-center gap-1.5 truncate">
+                                  {isSuper && (
+                                    <Icon path={mdi.mdiCrownOutline} className="h-3.5 w-3.5 text-amber-500" />
+                                  )}
+                                  {!isSuper && isEditor && (
+                                    <Icon path={mdi.mdiPencilOutline} className="h-3.5 w-3.5 text-primary" />
+                                  )}
+                                  {!isSuper && isApprover && (
+                                    <Icon path={mdi.mdiClipboardCheckOutline} className="h-3.5 w-3.5 text-emerald-600" />
+                                  )}
+                                  {!isSuper && !isEditor && !isApprover && (
+                                    <Icon path={mdi.mdiEyeOutline} className="h-3.5 w-3.5 text-sky-600" />
+                                  )}
+                                  <span className="truncate">{preset.name}</span>
+                                </span>
+                                <div
+                                  className={`h-4 w-4 rounded flex items-center justify-center shrink-0 border ${active
+                                    ? "bg-primary border-primary text-white"
+                                    : "border-neutral-300 bg-white"
+                                    }`}
+                                >
+                                  {active && <Icon path={mdi.mdiCheck} className="h-3 w-3" />}
+                                </div>
+                              </div>
+                              <span className="text-[10px] text-subtle-text line-clamp-2">
+                                {preset.description}
+                              </span>
+                              <span className="text-[10px] font-mono text-neutral-400 mt-0.5">
+                                {preset.roles.length} roles
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
 
             {/* Footer */}
-            <DialogFooter className="p-5 px-6 border-t border-border flex items-center justify-end gap-3 bg-neutral-50/70 shrink-0">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setIsCreateOpen(false)}
-                className="cursor-pointer px-4"
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={isCreating} className="cursor-pointer gap-2 shadow-sm px-5">
-                {isCreating ? (
-                  <>
-                    <Icon path={mdi.mdiLoading} className="h-4 w-4 animate-spin" />
-                    Creating User...
-                  </>
+            <DialogFooter className="p-5 px-6 border-t border-border flex items-center justify-between gap-4 bg-neutral-50/70 shrink-0">
+              <div className="text-xs text-subtle-text">
+                {createForm.Username ? (
+                  <>New user: <strong className="text-neutral-900 font-semibold">@{createForm.Username}</strong> ({createForm.Roles.length} roles)</>
                 ) : (
-                  <>
-                    <Icon path={mdi.mdiAccountPlus} className="h-4 w-4" />
-                    Create Admin User
-                  </>
+                  <>{createForm.Roles.length} roles selected</>
                 )}
-              </Button>
+              </div>
+              <div className="flex items-center gap-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setIsCreateOpen(false)}
+                  disabled={isCreating}
+                  className="cursor-pointer px-4"
+                >
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={isCreating} className="cursor-pointer gap-2 shadow-sm px-5">
+                  {isCreating ? (
+                    <>
+                      <Icon path={mdi.mdiLoading} className="h-4 w-4 animate-spin" />
+                      Creating User...
+                    </>
+                  ) : (
+                    <>
+                      <Icon path={mdi.mdiAccountPlus} className="h-4 w-4" />
+                      Create Admin User
+                    </>
+                  )}
+                </Button>
+              </div>
             </DialogFooter>
           </form>
         </DialogContent>
