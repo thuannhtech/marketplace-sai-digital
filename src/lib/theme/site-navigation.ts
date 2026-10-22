@@ -66,6 +66,16 @@ export const siteNavigationGroups: SiteNavigationGroup[] = [
     ],
   },
   {
+    title: "Forms",
+    items: [
+      {
+        title: "Form Submissions",
+        url: "/forms",
+        icon: mdi.mdiTextBoxCheckOutline,
+      },
+    ],
+  },
+  {
     title: "Configuration",
     items: [
       {
