@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { saveSubmission, FormSubmission } from '@/src/lib/forms/storage';
+import { saveSubmission, getAllSubmissions, FormSubmission } from '@/src/lib/forms/storage';
 
 export const dynamic = 'force-dynamic';
 
@@ -91,7 +91,34 @@ export async function POST(req: NextRequest) {
     const referer = req.headers.get('referer') || rawBody.domain || req.headers.get('origin') || 'app.sitecorecloud.io';
     const forwardedFor = req.headers.get('x-forwarded-for') || req.headers.get('remote-addr') || '127.0.0.1';
 
-    // 4. Save submission into storage
+    // 4. Deduplication guard: ignore exact duplicate webhook submissions within 5 seconds
+    const existingList = getAllSubmissions();
+    const isDuplicate = existingList.some((item) => {
+      if (item.formId !== detectedFormId) return false;
+      const timeDiff = Math.abs(Date.now() - new Date(item.submittedAt).getTime());
+      if (timeDiff > 5000) return false;
+      return JSON.stringify(item.data) === JSON.stringify(rawBody);
+    });
+
+    if (isDuplicate) {
+      return NextResponse.json(
+        {
+          isSuccessful: true,
+          message: 'Duplicate submission detected within 5 seconds; deduplicated.',
+          receivedData: {
+            formName: detectedFormName,
+            formId: detectedFormId,
+            fieldsCount: Object.keys(rawBody).length,
+          },
+        },
+        {
+          status: 200,
+          headers: CORS_HEADERS,
+        }
+      );
+    }
+
+    // 5. Save submission into storage
     const newSubmission: FormSubmission = {
       id: `sub-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       formId: detectedFormId,
