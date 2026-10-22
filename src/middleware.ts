@@ -43,9 +43,9 @@ export function middleware(request: NextRequest) {
       return response;
     }
 
-    // If authenticated, redirect to home page "/"
+    // If authenticated, redirect to default page "/standalone-extension"
     if (isAuthenticated) {
-      return NextResponse.redirect(new URL("/", request.url));
+      return NextResponse.redirect(new URL("/standalone-extension", request.url));
     }
 
     return NextResponse.next();

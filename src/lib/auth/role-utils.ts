@@ -86,12 +86,6 @@ export function canApprovePage(pathname: string, roles?: string[], username?: st
  * Retrieve the default redirect page based on accessible roles
  */
 export function getDefaultRedirectPage(roles?: string[], username?: string): string {
-  if (isSuperAdmin(roles, username)) return "/product";
-  if (canAccessPage("/customers", roles, username)) return "/customers";
-  if (canAccessPage("/product", roles, username)) return "/product";
-  if (canAccessPage("/orders", roles, username)) return "/orders";
-  if (canAccessPage("/promotions", roles, username)) return "/promotions";
-  if (canAccessPage("/gst-configuration", roles, username)) return "/gst-configuration";
-  return "/unauthorized";
+  return "/standalone-extension";
 }
 

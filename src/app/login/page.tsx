@@ -55,13 +55,14 @@ function LoginForm() {
 
       await refreshUser();
 
-      // Determine redirect target: return to redirectFrom if specified, otherwise default home/product
+      // Mặc định luôn về /standalone-extension
       const targetUrl =
         redirectFrom &&
         redirectFrom !== "/login" &&
-        redirectFrom !== "/unauthorized"
+        redirectFrom !== "/unauthorized" &&
+        redirectFrom !== "/"
           ? redirectFrom
-          : (result.targetUrl || "/");
+          : "/standalone-extension";
 
       // Full navigation ensures cookie is re-read by server and middleware
       window.location.href = targetUrl;

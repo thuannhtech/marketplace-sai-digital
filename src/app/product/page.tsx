@@ -389,8 +389,8 @@ const MediaLibraryGrid = memo(function MediaLibraryGrid({
             <label
               key={item.itemId}
               className={`group cursor-pointer overflow-hidden rounded-md border transition-colors ${selected
-                  ? "border-primary ring-1 ring-primary"
-                  : "border-sidebar-border hover:bg-muted"
+                ? "border-primary ring-1 ring-primary"
+                : "border-sidebar-border hover:bg-muted"
                 }`}
             >
               <div className="relative aspect-square bg-muted">
@@ -707,7 +707,7 @@ export default function ProductPage() {
     isCreating || isProcessingImages || isUploadingToMediaLibrary || isMediaLibraryLoading || isSwitchingEditLanguage;
   const hasCreatedPendingPublish = !editingProduct && Boolean(pendingLocalPublishProduct?.id);
   const canShowPublishActions =
-    (isApprover || isWritable) &&
+    isApprover &&
     Boolean(pendingLocalPublishProduct) &&
     (!editingProduct || normalizeStatus(editingProduct.status) === STATUS_DRAFT);
   const selectedProductLanguageLabel = getProductLanguageLabel(createForm.language);
@@ -1757,7 +1757,7 @@ export default function ProductPage() {
                   <Button
                     type="button"
                     onClick={async () => {
-                      if (!isApprover && !isWritable) {
+                      if (!isApprover) {
                         showMessage("You do not have permission to approve products.", "destructive");
                         return;
                       }

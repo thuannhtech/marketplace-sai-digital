@@ -156,83 +156,100 @@ export default function AdminUsersPage() {
 
   // Toggle a role preset for Create or Update form
   const handleTogglePreset = (preset: RolePreset, target: "create" | "update") => {
-    const rolesToRemove = [preset.xpRole, ...preset.roles];
-    const rolesToAdd = [preset.xpRole, ...preset.roles];
+    const currentRoles = target === "create" ? createForm.Roles : updateForm.Roles;
+    const isCurrentlyActive = isPresetActive(preset, currentRoles);
 
-    if (target === "create") {
-      const active = isPresetActive(preset, createForm.Roles);
-      if (active) {
-        setCreateForm((prev) => ({
-          ...prev,
-          Roles: prev.Roles.filter((r) => !rolesToRemove.includes(r)),
-        }));
+    let nextRoles: string[];
+
+    if (preset.id === "super_admin") {
+      if (isCurrentlyActive) {
+        nextRoles = [];
       } else {
-        if (preset.id === "super_admin") {
-          setCreateForm((prev) => ({ ...prev, Roles: ["SUPPER_ADMIN", "FullAccess"] }));
-        } else {
-          setCreateForm((prev) => {
-            const next = prev.Roles.filter((r) => r !== "SUPPER_ADMIN" && r !== "FullAccess");
-            return {
-              ...prev,
-              Roles: Array.from(new Set([...next, ...rolesToAdd])),
-            };
-          });
-        }
+        nextRoles = ["SUPPER_ADMIN", "FullAccess"];
       }
     } else {
-      const active = isPresetActive(preset, updateForm.Roles);
-      if (active) {
-        setUpdateForm((prev) => ({
-          ...prev,
-          Roles: prev.Roles.filter((r) => !rolesToRemove.includes(r)),
-        }));
+      const withoutSuper = currentRoles.filter((r) => r !== "SUPPER_ADMIN" && r !== "FullAccess");
+
+      let updatedXpRoles: string[];
+      if (isCurrentlyActive) {
+        updatedXpRoles = withoutSuper.filter((r) => r !== preset.xpRole);
       } else {
-        if (preset.id === "super_admin") {
-          setUpdateForm((prev) => ({ ...prev, Roles: ["SUPPER_ADMIN", "FullAccess"] }));
-        } else {
-          setUpdateForm((prev) => {
-            const next = prev.Roles.filter((r) => r !== "SUPPER_ADMIN" && r !== "FullAccess");
-            return {
-              ...prev,
-              Roles: Array.from(new Set([...next, ...rolesToAdd])),
-            };
-          });
-        }
+        updatedXpRoles = [...withoutSuper, preset.xpRole];
       }
+
+      // Recompute all active standard roles from remaining active presets
+      const activePresets = ROLE_PRESETS.filter((p) => updatedXpRoles.includes(p.xpRole));
+      const combinedStandardRoles = activePresets.flatMap((p) => p.roles);
+      const combinedXpRoles = activePresets.map((p) => p.xpRole);
+
+      // Preserve any custom non-preset roles
+      const knownPresetRoles = new Set([
+        ...ROLE_PRESETS.flatMap((p) => p.roles),
+        ...ROLE_PRESETS.map((p) => p.xpRole),
+      ]);
+      const customExistingRoles = withoutSuper.filter((r) => !knownPresetRoles.has(r));
+
+      nextRoles = Array.from(new Set([...customExistingRoles, ...combinedXpRoles, ...combinedStandardRoles]));
+    }
+
+    if (target === "create") {
+      setCreateForm((prev) => ({ ...prev, Roles: nextRoles }));
+    } else {
+      setUpdateForm((prev) => ({ ...prev, Roles: nextRoles }));
     }
   };
 
-  // Toggle individual role in Update modal
-  const handleToggleUpdateRole = (role: string) => {
-    setUpdateForm((prev) => {
-      const roles = prev.Roles.includes(role)
-        ? prev.Roles.filter((r) => r !== role)
-        : [...prev.Roles, role];
-      return { ...prev, Roles: roles };
-    });
+  // Toggle all presets within a category
+  const handleToggleCategoryAll = (categoryPresets: RolePreset[], target: "create" | "update") => {
+    const currentRoles = target === "create" ? createForm.Roles : updateForm.Roles;
+    const allActive = categoryPresets.every((p) => isPresetActive(p, currentRoles));
+    const categoryXpRoles = categoryPresets.map((p) => p.xpRole);
+
+    let nextXpRoles: string[];
+    if (allActive) {
+      nextXpRoles = currentRoles.filter((r) => !categoryXpRoles.includes(r));
+    } else {
+      nextXpRoles = Array.from(new Set([...currentRoles, ...categoryXpRoles]));
+    }
+
+    const withoutSuper = nextXpRoles.filter((r) => r !== "SUPPER_ADMIN" && r !== "FullAccess");
+    const activePresets = ROLE_PRESETS.filter((p) => withoutSuper.includes(p.xpRole));
+    const combinedStandardRoles = activePresets.flatMap((p) => p.roles);
+    const combinedXpRoles = activePresets.map((p) => p.xpRole);
+
+    const hasSuper = nextXpRoles.includes("SUPPER_ADMIN");
+    const nextRoles = hasSuper
+      ? ["SUPPER_ADMIN", "FullAccess"]
+      : Array.from(new Set([...combinedXpRoles, ...combinedStandardRoles]));
+
+    if (target === "create") {
+      setCreateForm((prev) => ({ ...prev, Roles: nextRoles }));
+    } else {
+      setUpdateForm((prev) => ({ ...prev, Roles: nextRoles }));
+    }
   };
 
-  // Quick select: All Readers
-  const handleSelectAllReaders = () => {
-    const readerRoles = ALL_ORDERCLOUD_ROLES.filter((r) => r.endsWith("Reader") || r === "Shopper");
-    setUpdateForm((prev) => ({
-      ...prev,
-      Roles: Array.from(new Set([...prev.Roles.filter((r) => r !== "FullAccess"), ...readerRoles])),
-    }));
-  };
+  // Quick select presets across all modules
+  const handleQuickSelectPresets = (filterType: "reader" | "admin" | "clear", target: "create" | "update") => {
+    if (filterType === "clear") {
+      if (target === "create") {
+        setCreateForm((prev) => ({ ...prev, Roles: [] }));
+      } else {
+        setUpdateForm((prev) => ({ ...prev, Roles: [] }));
+      }
+      return;
+    }
 
-  // Quick select: All Admins (Writers)
-  const handleSelectAllAdmins = () => {
-    const adminRoles = ALL_ORDERCLOUD_ROLES.filter((r) => r.endsWith("Admin"));
-    setUpdateForm((prev) => ({
-      ...prev,
-      Roles: Array.from(new Set([...prev.Roles.filter((r) => r !== "FullAccess"), ...adminRoles])),
-    }));
-  };
+    const matchedPresets = ROLE_PRESETS.filter((p) => p.type === filterType && p.id !== "super_admin");
+    const combinedXpRoles = matchedPresets.map((p) => p.xpRole);
+    const combinedStandardRoles = matchedPresets.flatMap((p) => p.roles);
+    const nextRoles = Array.from(new Set([...combinedXpRoles, ...combinedStandardRoles]));
 
-  // Clear all roles in Update modal
-  const handleClearAllUpdateRoles = () => {
-    setUpdateForm((prev) => ({ ...prev, Roles: [] }));
+    if (target === "create") {
+      setCreateForm((prev) => ({ ...prev, Roles: nextRoles }));
+    } else {
+      setUpdateForm((prev) => ({ ...prev, Roles: nextRoles }));
+    }
   };
 
   // Open confirmation modal to delete an Admin User
@@ -516,14 +533,11 @@ export default function AdminUsersPage() {
                     <th className="px-6 py-3.5">Admin User</th>
                     <th className="px-6 py-3.5">Email</th>
                     <th className="px-6 py-3.5">Active</th>
-                    <th className="px-6 py-3.5">Assigned Roles & Presets</th>
                     <th className="px-6 py-3.5 text-right">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
                   {filteredUsers.map((u) => {
-                    const presetNames = getUserPresetNames(u.Roles, u.xp?.Roles);
-                    const roleCount = u.Roles?.length || 0;
                     const isSuper =
                       u.Roles?.includes("FullAccess") ||
                       u.Roles?.includes("ADMIN_GLOBAL") ||
@@ -565,45 +579,6 @@ export default function AdminUsersPage() {
                               Inactive
                             </Badge>
                           )}
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="flex items-center gap-1.5 flex-wrap max-w-md">
-                            {presetNames.map((name) => {
-                              const isEditor = name.includes("Editor");
-                              const isApprover = name.includes("Approver");
-                              const isSuperPreset = name === "Super Admin";
-
-                              return (
-                                <span
-                                  key={name}
-                                  className={`text-xs px-2.5 py-0.5 rounded-full font-medium border flex items-center gap-1 ${isSuperPreset
-                                    ? "bg-purple-50 text-purple-700 border-purple-200"
-                                    : isEditor
-                                      ? "bg-primary/10 text-primary border-primary/20 font-semibold"
-                                      : isApprover
-                                        ? "bg-emerald-50 text-emerald-700 border-emerald-200 font-semibold"
-                                        : "bg-sky-50 text-sky-700 border-sky-200"
-                                    }`}
-                                >
-                                  {isSuperPreset && <Icon path={mdi.mdiCrownOutline} className="h-3 w-3" />}
-                                  {isEditor && <Icon path={mdi.mdiPencilOutline} className="h-3 w-3" />}
-                                  {isApprover && <Icon path={mdi.mdiClipboardCheckOutline} className="h-3 w-3" />}
-                                  {!isEditor && !isSuperPreset && !isApprover && <Icon path={mdi.mdiEyeOutline} className="h-3 w-3" />}
-                                  {name}
-                                </span>
-                              );
-                            })}
-
-                            {presetNames.length === 0 && roleCount > 0 && (
-                              <Badge colorScheme="neutral" className="text-xs font-medium">
-                                Custom ({roleCount} roles)
-                              </Badge>
-                            )}
-
-                            {roleCount === 0 && (
-                              <span className="text-xs text-subtle-text italic">No roles assigned</span>
-                            )}
-                          </div>
                         </td>
                         <td className="px-6 py-4 text-right">
                           <div className="flex items-center justify-end gap-2">
