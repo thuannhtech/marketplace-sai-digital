@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
     const formIdFilter = searchParams.get('formId');
     const searchFilter = searchParams.get('search')?.toLowerCase();
 
-    const allSubmissions = getAllSubmissions();
+    const allSubmissions = await getAllSubmissions();
 
     // Compute distinct forms available
     const formsMap = new Map<string, { formId: string; formName: string; count: number }>();
@@ -99,7 +99,7 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'Missing id parameter' }, { status: 400, headers: CORS_HEADERS });
     }
 
-    const success = deleteSubmission(id);
+    const success = await deleteSubmission(id);
     return NextResponse.json({ success }, { status: 200, headers: CORS_HEADERS });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500, headers: CORS_HEADERS });

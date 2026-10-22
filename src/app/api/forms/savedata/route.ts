@@ -92,7 +92,7 @@ export async function POST(req: NextRequest) {
     const forwardedFor = req.headers.get('x-forwarded-for') || req.headers.get('remote-addr') || '127.0.0.1';
 
     // 4. Deduplication guard: ignore exact duplicate webhook submissions within 5 seconds
-    const existingList = getAllSubmissions();
+    const existingList = await getAllSubmissions();
     const isDuplicate = existingList.some((item) => {
       if (item.formId !== detectedFormId) return false;
       const timeDiff = Math.abs(Date.now() - new Date(item.submittedAt).getTime());
@@ -136,7 +136,7 @@ export async function POST(req: NextRequest) {
       },
     };
 
-    saveSubmission(newSubmission);
+    await saveSubmission(newSubmission);
 
     return NextResponse.json(
       {
